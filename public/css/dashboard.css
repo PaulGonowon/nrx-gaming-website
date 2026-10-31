@@ -590,6 +590,22 @@ tbody tr:hover td { background: rgba(255, 199, 0, 0.045); }
   .topbar__link { display: none; }
 }
 
+/* ---------- Settings (my account) ---------- */
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; align-items: start; }
+.acct { display: grid; gap: 0; }
+.acct__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.acct__row:last-child { border-bottom: 0; }
+.acct__row > span:first-child { color: var(--muted); font-size: 13px; letter-spacing: 0.5px; }
+.acct__row b { font-weight: 600; text-align: right; word-break: break-word; }
+
 /* ---------- Mobile refinements (no overlap on small screens) ---------- */
 @media (max-width: 620px) {
   .search { min-width: 100%; }

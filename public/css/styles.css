@@ -633,9 +633,6 @@ body::before {
 .btn.is-loading .btn__spinner { display: block; }
 .btn.is-loading .btn__text { opacity: 0.6; }
 
-.modal__hint { text-align: center; font-size: 13px; color: var(--muted); }
-.modal__hint code { background: rgba(255, 199, 0, 0.12); color: var(--gold); padding: 2px 7px; border-radius: 6px; font-size: 12px; }
-
 /* ---------- Toast ---------- */
 .toast {
   position: fixed;

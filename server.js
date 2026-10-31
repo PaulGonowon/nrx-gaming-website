@@ -82,6 +82,26 @@ function writeUsers(list) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Activity logs (records every action on the site)                   */
+/* ------------------------------------------------------------------ */
+const activity = collection("activity", []);
+
+function logActivity(req, action, detail, userOverride) {
+  const s = req.session && req.session.user;
+  const list = activity.read();
+  list.unshift({
+    id: crypto.randomUUID(),
+    ts: new Date().toISOString(),
+    user: userOverride || (s && s.username) || "guest",
+    role: (s && s.role) || "",
+    ip: req.ip || "",
+    action,
+    detail: detail || "",
+  });
+  activity.write(list.slice(0, 500));
+}
+
+/* ------------------------------------------------------------------ */
 /*  Site data (public roster / stats)                                  */
 /* ------------------------------------------------------------------ */
 const siteStats = {
@@ -161,6 +181,12 @@ function requireAdmin(req, res, next) {
   res.status(403).json({ ok: false, error: "Admin privileges required." });
 }
 
+function requireStaff(req, res, next) {
+  const u = req.session && req.session.user;
+  if (u && (u.role === "admin" || u.role === "staff")) return next();
+  res.status(403).json({ ok: false, error: "Staff privileges required." });
+}
+
 const loginAttempts = new Map();
 function throttleLogin(req, res, next) {
   const key = req.ip;
@@ -187,29 +213,43 @@ app.post("/api/login", throttleLogin, async (req, res) => {
     return res.status(400).json({ ok: false, error: "Username and password are required." });
   }
 
+  const attempted = String(username).trim();
   const user = readUsers().find(
-    (u) => u.username.toLowerCase() === String(username).trim().toLowerCase()
+    (u) => u.username.toLowerCase() === attempted.toLowerCase()
   );
   const genericError = { ok: false, error: "Invalid username or password." };
-  if (!user) return res.status(401).json(genericError);
+  if (!user) {
+    logActivity(req, "login", "Failed sign-in attempt", attempted || "unknown");
+    return res.status(401).json(genericError);
+  }
 
   const valid = await bcrypt.compare(String(password), user.password);
-  if (!valid) return res.status(401).json(genericError);
+  if (!valid) {
+    logActivity(req, "login", "Failed sign-in attempt", user.username);
+    return res.status(401).json(genericError);
+  }
+
+  const list = readUsers();
+  const fresh = list.find((u) => u.id === user.id) || user;
+  fresh.lastLogin = new Date().toISOString();
+  writeUsers(list);
 
   req.session.user = {
-    id: user.id,
-    username: user.username,
-    role: user.role,
-    displayName: user.displayName,
+    id: fresh.id,
+    username: fresh.username,
+    role: fresh.role,
+    displayName: fresh.displayName,
   };
+  logActivity(req, "login", "Signed in to the admin console", fresh.username);
 
   res.json({
     ok: true,
-    user: { username: user.username, role: user.role, displayName: user.displayName },
+    user: { username: fresh.username, role: fresh.role, displayName: fresh.displayName },
   });
 });
 
 app.post("/api/logout", (req, res) => {
+  logActivity(req, "logout", "Signed out");
   req.session.destroy(() => {
     res.clearCookie("nrx.sid");
     res.json({ ok: true });
@@ -221,6 +261,41 @@ app.get("/api/session", (req, res) => {
     return res.json({ ok: true, authenticated: true, user: req.session.user });
   }
   res.json({ ok: true, authenticated: false });
+});
+
+/* ------------------------------------------------------------------ */
+/*  My account (any signed-in user)                                    */
+/* ------------------------------------------------------------------ */
+app.get("/api/me", requireAuth, (req, res) => {
+  const u = readUsers().find((x) => x.id === req.session.user.id);
+  if (!u) return res.status(401).json({ ok: false, error: "Account not found." });
+  res.json({ ok: true, user: publicUser(u) });
+});
+
+app.post("/api/me/password", requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  const u = readUsers().find((x) => x.id === req.session.user.id);
+  if (!u) return res.status(401).json({ ok: false, error: "Account not found." });
+
+  const valid = await bcrypt.compare(String(currentPassword || ""), u.password);
+  if (!valid) {
+    return res.status(400).json({ ok: false, error: "Current password is incorrect." });
+  }
+  const pass = String(newPassword || "");
+  if (pass.length < 8) {
+    return res.status(400).json({ ok: false, error: "New password must be at least 8 characters." });
+  }
+  if (pass === String(currentPassword || "")) {
+    return res.status(400).json({ ok: false, error: "New password must be different from the current one." });
+  }
+
+  const list = readUsers();
+  const idx = list.findIndex((x) => x.id === u.id);
+  list[idx].password = bcrypt.hashSync(pass, 10);
+  list[idx].passwordChangedAt = new Date().toISOString();
+  writeUsers(list);
+  logActivity(req, "password", "Changed own account password");
+  res.json({ ok: true });
 });
 
 /* ------------------------------------------------------------------ */
@@ -250,14 +325,23 @@ app.get("/api/stats", (req, res) => {
 /* ------------------------------------------------------------------ */
 /*  Generic CRUD factory for admin records                             */
 /* ------------------------------------------------------------------ */
+function labelOf(record, fields) {
+  for (const k of fields) if (String(record[k] || "").trim()) return String(record[k]);
+  return record.name || record.party || record.ingameName || "record";
+}
+function singular(n) {
+  return n.replace(/s$/, "");
+}
+
 function registerCrud(name, store, requiredFields) {
   const base = "/api/admin/" + name;
+  const entity = singular(name);
 
-  app.get(base, requireAuth, requireAdmin, (req, res) => {
+  app.get(base, requireAuth, requireStaff, (req, res) => {
     res.json({ ok: true, items: store.read() });
   });
 
-  app.post(base, requireAuth, requireAdmin, (req, res) => {
+  app.post(base, requireAuth, requireStaff, (req, res) => {
     const body = req.body || {};
     const missing = requiredFields.filter((f) => !String(body[f] ?? "").trim());
     if (missing.length) {
@@ -271,10 +355,11 @@ function registerCrud(name, store, requiredFields) {
     const list = store.read();
     list.unshift(record);
     store.write(list);
+    logActivity(req, "create", entity + " \u201c" + labelOf(record, requiredFields) + "\u201d");
     res.status(201).json({ ok: true, item: record });
   });
 
-  app.put(base + "/:id", requireAuth, requireAdmin, (req, res) => {
+  app.put(base + "/:id", requireAuth, requireStaff, (req, res) => {
     const list = store.read();
     const idx = list.findIndex((i) => i.id === req.params.id);
     if (idx === -1) return res.status(404).json({ ok: false, error: "Record not found." });
@@ -289,15 +374,17 @@ function registerCrud(name, store, requiredFields) {
     list[idx] = merged;
     store.write(list);
     if (oldPhoto && oldPhoto !== merged.photo) removePhoto(oldPhoto);
+    logActivity(req, "update", entity + " \u201c" + labelOf(merged, requiredFields) + "\u201d");
     res.json({ ok: true, item: merged });
   });
 
-  app.delete(base + "/:id", requireAuth, requireAdmin, (req, res) => {
+  app.delete(base + "/:id", requireAuth, requireStaff, (req, res) => {
     const list = store.read();
     const existing = list.find((i) => i.id === req.params.id);
     if (!existing) return res.status(404).json({ ok: false, error: "Record not found." });
     store.write(list.filter((i) => i.id !== req.params.id));
     if (existing.photo) removePhoto(existing.photo);
+    logActivity(req, "delete", entity + " \u201c" + labelOf(existing, requiredFields) + "\u201d");
     res.json({ ok: true });
   });
 }
@@ -311,7 +398,7 @@ registerCrud("contracts", contracts, ["party", "type", "status"]);
 /* ------------------------------------------------------------------ */
 /*  Member photo upload (base64 -> /uploads)                           */
 /* ------------------------------------------------------------------ */
-app.post("/api/admin/upload-photo", requireAuth, requireAdmin, (req, res) => {
+app.post("/api/admin/upload-photo", requireAuth, requireStaff, (req, res) => {
   const { dataUrl } = req.body || {};
   const match = PHOTO_RE.exec(String(dataUrl || ""));
   if (!match) {
@@ -327,10 +414,11 @@ app.post("/api/admin/upload-photo", requireAuth, requireAdmin, (req, res) => {
   }
   const name = crypto.randomUUID() + "." + ext;
   fs.writeFileSync(path.join(UPLOADS_DIR, name), buffer);
+  logActivity(req, "upload", "Photo uploaded (" + (buffer.length / 1024).toFixed(0) + "KB)");
   res.status(201).json({ ok: true, url: "/uploads/" + name });
 });
 
-app.delete("/api/admin/upload-photo", requireAuth, requireAdmin, (req, res) => {
+app.delete("/api/admin/upload-photo", requireAuth, requireStaff, (req, res) => {
   const url = (req.body || {}).url;
   removePhoto(String(url || ""));
   res.json({ ok: true });
@@ -339,7 +427,7 @@ app.delete("/api/admin/upload-photo", requireAuth, requireAdmin, (req, res) => {
 /* ------------------------------------------------------------------ */
 /*  Dashboard summary + announcements                                  */
 /* ------------------------------------------------------------------ */
-app.get("/api/admin/summary", requireAuth, requireAdmin, (req, res) => {
+app.get("/api/admin/summary", requireAuth, requireStaff, (req, res) => {
   const m = members.read();
   res.json({
     ok: true,
@@ -353,24 +441,136 @@ app.get("/api/admin/summary", requireAuth, requireAdmin, (req, res) => {
       activeSponsors: sponsorships.read().filter((s) => s.status === "Active").length,
       contracts: contracts.read().length,
       activeContracts: contracts.read().filter((c) => c.status === "Active").length,
+      users: readUsers().length,
     },
     recentMembers: m.slice(0, 5),
     recentChampionships: championships.read().slice(0, 4),
   });
 });
 
-app.get("/api/admin/announcements", requireAuth, requireAdmin, (req, res) => {
+app.get("/api/admin/announcements", requireAuth, requireStaff, (req, res) => {
   res.json({ ok: true, announcements: siteStats.announcements });
 });
 
-app.post("/api/admin/announcement", requireAuth, requireAdmin, (req, res) => {
+app.post("/api/admin/announcement", requireAuth, requireStaff, (req, res) => {
   const { message } = req.body || {};
   if (!message || !String(message).trim()) {
     return res.status(400).json({ ok: false, error: "Announcement message is required." });
   }
-  siteStats.announcements.unshift(String(message).trim());
+  const msg = String(message).trim();
+  siteStats.announcements.unshift(msg);
   siteStats.announcements = siteStats.announcements.slice(0, 6);
+  logActivity(req, "announce", "Published: " + msg.slice(0, 140));
   res.json({ ok: true, announcements: siteStats.announcements });
+});
+
+/* ------------------------------------------------------------------ */
+/*  User accounts (admin only)                                         */
+/* ------------------------------------------------------------------ */
+function publicUser(u) {
+  return {
+    id: u.id,
+    username: u.username,
+    displayName: u.displayName || u.username,
+    role: u.role,
+    createdAt: u.createdAt || "",
+    lastLogin: u.lastLogin || "",
+    passwordChangedAt: u.passwordChangedAt || "",
+  };
+}
+
+app.get("/api/admin/users", requireAuth, requireAdmin, (req, res) => {
+  res.json({ ok: true, items: readUsers().map(publicUser) });
+});
+
+app.post("/api/admin/users", requireAuth, requireAdmin, (req, res) => {
+  const body = req.body || {};
+  const name = String(body.username || "").trim();
+  const pass = String(body.password || "");
+  const disp = String(body.displayName || "").trim() || name;
+  const role = body.role === "staff" ? "staff" : "admin";
+
+  if (!/^[A-Za-z0-9._-]{3,24}$/.test(name)) {
+    return res.status(400).json({ ok: false, error: "Username must be 3-24 characters (letters, numbers, . _ -)." });
+  }
+  if (pass.length < 8) {
+    return res.status(400).json({ ok: false, error: "Password must be at least 8 characters." });
+  }
+  const list = readUsers();
+  if (list.some((u) => u.username.toLowerCase() === name.toLowerCase())) {
+    return res.status(409).json({ ok: false, error: "Username already exists." });
+  }
+
+  const record = {
+    id: crypto.randomUUID(),
+    username: name,
+    password: bcrypt.hashSync(pass, 10),
+    role,
+    displayName: disp,
+    createdAt: new Date().toISOString(),
+    lastLogin: "",
+  };
+  list.unshift(record);
+  writeUsers(list);
+  logActivity(req, "create", "user \u201c" + name + "\u201d (" + (role === "admin" ? "Administrator" : "Staff") + ")");
+  res.status(201).json({ ok: true, item: publicUser(record) });
+});
+
+app.put("/api/admin/users/:id", requireAuth, requireAdmin, (req, res) => {
+  const list = readUsers();
+  const idx = list.findIndex((u) => u.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ ok: false, error: "User not found." });
+
+  const body = req.body || {};
+  const target = list[idx];
+  const disp = String(body.displayName ?? target.displayName ?? "").trim() || target.username;
+  const role = body.role === "staff" ? "staff" : body.role === "admin" ? "admin" : target.role;
+
+  if (target.role === "admin" && role !== "admin") {
+    const otherAdmins = list.filter((u) => u.role === "admin" && u.id !== target.id);
+    if (!otherAdmins.length) {
+      return res.status(400).json({ ok: false, error: "Cannot demote the last administrator." });
+    }
+  }
+  const pass = String(body.password || "");
+  if (pass && pass.length < 8) {
+    return res.status(400).json({ ok: false, error: "Password must be at least 8 characters." });
+  }
+
+  target.displayName = disp;
+  target.role = role;
+  if (pass) target.password = bcrypt.hashSync(pass, 10);
+  list[idx] = target;
+  writeUsers(list);
+
+  if (req.session.user && req.session.user.id === target.id) {
+    req.session.user.displayName = target.displayName;
+    req.session.user.role = target.role;
+  }
+  logActivity(req, "update", "user \u201c" + target.username + "\u201d" + (pass ? " (password reset)" : ""));
+  res.json({ ok: true, item: publicUser(target) });
+});
+
+app.delete("/api/admin/users/:id", requireAuth, requireAdmin, (req, res) => {
+  const list = readUsers();
+  const target = list.find((u) => u.id === req.params.id);
+  if (!target) return res.status(404).json({ ok: false, error: "User not found." });
+  if (req.session.user && req.session.user.id === target.id) {
+    return res.status(400).json({ ok: false, error: "You cannot delete your own account." });
+  }
+  if (target.role === "admin" && list.filter((u) => u.role === "admin").length <= 1) {
+    return res.status(400).json({ ok: false, error: "Cannot delete the last administrator." });
+  }
+  writeUsers(list.filter((u) => u.id !== target.id));
+  logActivity(req, "delete", "user \u201c" + target.username + "\u201d");
+  res.json({ ok: true });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Activity log feed (admin only)                                     */
+/* ------------------------------------------------------------------ */
+app.get("/api/admin/activity", requireAuth, requireAdmin, (req, res) => {
+  res.json({ ok: true, items: activity.read() });
 });
 
 /* ------------------------------------------------------------------ */

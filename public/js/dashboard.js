@@ -140,6 +140,27 @@
         { key: "status", label: "Status", type: "select", required: true, options: ["Active", "Expiring", "Expired", "Draft"] },
       ],
     },
+    users: {
+      title: "Users",
+      viewTitle: "User Accounts",
+      addLabel: "Add User",
+      searchKey: "username",
+      icon: "♟", color: "cyan",
+      endpoint: "/api/admin/users",
+      columns: [
+        { key: "username", label: "Username" },
+        { key: "displayName", label: "Display Name" },
+        { key: "role", label: "Role", userRole: true },
+        { key: "lastLogin", label: "Last Login", when: true },
+        { key: "createdAt", label: "Created", when: true },
+      ],
+      fields: [
+        { key: "username", label: "Username", type: "text", required: true, placeholder: "coach.ruel" },
+        { key: "displayName", label: "Display Name", type: "text", placeholder: "Ruel Bautista" },
+        { key: "role", label: "Role", type: "select", required: true, options: [{ v: "staff", l: "Staff" }, { v: "admin", l: "Administrator" }] },
+        { key: "password", label: "Password", type: "password", required: true, placeholder: "Min 8 characters" },
+      ],
+    },
   };
 
   const BADGE_MAP = {
@@ -156,7 +177,7 @@
   let editing = null;          // { type, id }
   let pendingDelete = null;    // { type, id }
   let stagedPhoto = null;      // newly uploaded, not yet saved
-  const dataCache = { members: [], teams: [], championships: [], sponsorships: [] };
+  const dataCache = { members: [], teams: [], championships: [], sponsorships: [], contracts: [], users: [], logs: [] };
 
   /* ============ Session guard ============ */
   async function guard() {
@@ -167,6 +188,9 @@
       user = d.user;
       $("#userName").textContent = user.displayName || user.username;
       $("#userAvatar").textContent = (user.displayName || user.username).charAt(0).toUpperCase();
+      if (user.role !== "admin") {
+        $$('.nav-item[data-view="users"], .nav-item[data-view="logs"]').forEach((b) => (b.hidden = true));
+      }
       return true;
     } catch { window.location.href = "/"; return false; }
   }
@@ -199,6 +223,9 @@
       sponsorships: SCHEMAS.sponsorships.viewTitle,
       contracts: SCHEMAS.contracts.viewTitle,
       announcements: "Announcements",
+      users: SCHEMAS.users.viewTitle,
+      logs: "Activity Logs",
+      settings: "Settings",
     };
     $("#viewTitle").textContent = titles[view] || view;
 
@@ -206,6 +233,8 @@
     if (view === "overview") loadOverview();
     else if (SCHEMAS[view]) loadRecordView(view);
     else if (view === "announcements") loadAnnouncements();
+    else if (view === "logs") loadLogsView();
+    else if (view === "settings") loadSettings();
   }
 
   $$(".nav-item").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
@@ -234,6 +263,7 @@
       $('[data-count="championships"]').textContent = s.championships;
       $('[data-count="sponsorships"]').textContent = s.sponsorships;
       $('[data-count="contracts"]').textContent = s.contracts;
+      if ($('[data-count="users"]')) $('[data-count="users"]').textContent = s.users;
 
       // stat cards
       $("#statsGrid").innerHTML = [
@@ -269,7 +299,20 @@
   function cellHTML(col, row) {
     if (col.photo) return thumbHTML(row[col.key], row);
     if (col.badge) return badge(row[col.key]);
+    if (col.userRole) return userRoleBadge(row[col.key]);
+    if (col.when) {
+      const v = row[col.key];
+      return v
+        ? esc(new Date(v).toLocaleString())
+        : `<span style="color:var(--muted)">Never</span>`;
+    }
     return esc(row[col.key] || "—");
+  }
+
+  function userRoleBadge(role) {
+    if (role === "admin") return `<span class="badge badge--violet">Administrator</span>`;
+    if (role === "staff") return `<span class="badge badge--cyan">Staff</span>`;
+    return esc(role || "—");
   }
 
   function thumbHTML(url, row) {
@@ -330,7 +373,9 @@
         <td style="text-align:right">
           <div class="cell-actions" style="justify-content:flex-end">
             <button class="act act--edit" data-edit="${r.id}">Edit</button>
-            <button class="act act--del" data-del="${r.id}">Delete</button>
+            ${type === "users" && user && r.id === user.id
+              ? `<span class="act" style="opacity:.45;cursor:not-allowed" title="You cannot delete your own account">Delete</span>`
+              : `<button class="act act--del" data-del="${r.id}">Delete</button>`}
           </div>
         </td>
       </tr>`).join("")}
@@ -374,7 +419,12 @@
         <input type="hidden" name="photo" value="${val}" />`;
       } else if (f.type === "select") {
         input = `<select name="${f.key}" ${f.required ? "required" : ""}>
-          ${f.options.map((o) => `<option value="${esc(o)}" ${record && record[f.key] === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
+          ${f.options.map((o) => {
+            const v = typeof o === "object" ? o.v : o;
+            const l = typeof o === "object" ? o.l : o;
+            const selected = record && record[f.key] === v;
+            return `<option value="${esc(v)}" ${selected ? "selected" : ""}>${esc(l)}</option>`;
+          }).join("")}
         </select>`;
       } else if (f.type === "textarea") {
         input = `<textarea name="${f.key}" placeholder="${esc(f.placeholder || "")}" ${f.required ? "required" : ""}>${val}</textarea>`;
@@ -386,6 +436,19 @@
     }).join("");
 
     bindPhotoPicker(record ? record.photo || "" : "");
+
+    if (type === "users") {
+      const uField = $('#formFields [name="username"]');
+      const pField = $('#formFields [name="password"]');
+      if (record && uField) {
+        uField.disabled = true;
+        uField.title = "Username cannot be changed";
+      }
+      if (record && pField) {
+        pField.required = false;
+        pField.placeholder = "Leave blank to keep current password";
+      }
+    }
 
     const modal = $("#recordModal");
     modal.classList.add("is-open");
@@ -512,7 +575,14 @@
     const schema = SCHEMAS[editing.type];
     const formData = new FormData(e.target);
     const payload = {};
-    schema.fields.forEach((f) => { payload[f.key] = (formData.get(f.key) || "").toString().trim(); });
+    schema.fields.forEach((f) => {
+      if (f.type === "password") {
+        const v = (formData.get(f.key) || "").toString().trim();
+        if (v) payload.password = v; // blank = keep current password
+        return;
+      }
+      payload[f.key] = (formData.get(f.key) || "").toString().trim();
+    });
 
     const type = editing.type;
     const isEdit = !!editing.id;
@@ -620,6 +690,144 @@
       } else toast(d.error || "Failed.", "error");
     } catch { toast("Network error.", "error"); }
   });
+
+  /* ============ Activity logs ============ */
+  const ACTION_COLOR = {
+    login: "cyan", logout: "violet",
+    create: "green", update: "amber", delete: "red",
+    upload: "cyan", announce: "magenta", password: "amber",
+  };
+
+  async function loadLogsView() {
+    const section = $('.view[data-view="logs"]');
+    try {
+      const r = await fetch("/api/admin/activity");
+      const d = await r.json();
+      dataCache.logs = d.ok ? d.items : [];
+    } catch { dataCache.logs = []; }
+
+    section.innerHTML = `
+      <div class="panel">
+        <div class="toolbar">
+          <div class="search"><input type="text" id="search_logs" placeholder="Search logs by user, action, or detail..." /></div>
+          <button class="btn btn--primary" id="logsRefresh">&#8635; Refresh</button>
+        </div>
+        <div class="table-wrap" id="table_logs"></div>
+      </div>`;
+
+    renderLogsTable();
+    $("#search_logs").addEventListener("input", (e) => renderLogsTable(e.target.value));
+    $("#logsRefresh").addEventListener("click", () => loadLogsView());
+  }
+
+  function renderLogsTable(query) {
+    const wrap = $("#table_logs");
+    if (!wrap) return;
+    const q = (query || "").toLowerCase();
+    let rows = dataCache.logs;
+    if (q) rows = rows.filter((l) => JSON.stringify(l).toLowerCase().includes(q));
+
+    if (!rows.length) {
+      wrap.innerHTML = `<div class="empty"><b>No activity found</b>${q ? "Try a different search term." : "Actions performed on the site will appear here."}</div>`;
+      return;
+    }
+
+    wrap.innerHTML = `<table><thead><tr>
+      <th>Time</th><th>User</th><th>Action</th><th>Details</th>
+    </tr></thead><tbody>
+      ${rows.map((l) => {
+        const act = String(l.action || "");
+        const actLabel = act.charAt(0).toUpperCase() + act.slice(1);
+        return `<tr>
+          <td style="white-space:nowrap">${esc(new Date(l.ts).toLocaleString())}</td>
+          <td><b>${esc(l.user || "guest")}</b></td>
+          <td><span class="badge badge--${ACTION_COLOR[act] || "cyan"}">${esc(actLabel)}</span></td>
+          <td>${esc(l.detail || "—")}</td>
+        </tr>`;
+      }).join("")}
+    </tbody></table>`;
+  }
+
+  /* ============ Settings — my account ============ */
+  async function loadSettings() {
+    const section = $('.view[data-view="settings"]');
+    let me = null;
+    try {
+      const r = await fetch("/api/me");
+      const d = await r.json();
+      if (d.ok) me = d.user;
+    } catch {}
+
+    if (!me) {
+      section.innerHTML = `<div class="panel"><div class="empty"><b>Account unavailable</b>Please sign in again.</div></div>`;
+      return;
+    }
+
+    const fmt = (v) => (v ? esc(new Date(v).toLocaleString()) : "\u2014");
+    section.innerHTML = `
+      <div class="settings-grid">
+        <div class="panel">
+          <div class="panel__head"><h3>My Account</h3></div>
+          <div class="acct">
+            <div class="acct__row"><span>Username</span><b>${esc(me.username)}</b></div>
+            <div class="acct__row"><span>Display Name</span><b>${esc(me.displayName)}</b></div>
+            <div class="acct__row"><span>Role</span><span>${userRoleBadge(me.role)}</span></div>
+            <div class="acct__row"><span>Last Sign-in</span><b>${fmt(me.lastLogin)}</b></div>
+            <div class="acct__row"><span>Account Created</span><b>${fmt(me.createdAt)}</b></div>
+            <div class="acct__row"><span>Password Changed</span><b>${fmt(me.passwordChangedAt)}</b></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel__head"><h3>Change Password</h3></div>
+          <form id="pwForm" novalidate>
+            <div class="form-grid">
+              <label class="field fw"><span class="field__label">Current Password *</span>
+                <input type="password" name="current" required autocomplete="current-password" /></label>
+              <label class="field fw"><span class="field__label">New Password *</span>
+                <input type="password" name="next" required minlength="8" autocomplete="new-password" placeholder="Min 8 characters" /></label>
+              <label class="field fw"><span class="field__label">Confirm New Password *</span>
+                <input type="password" name="confirm" required minlength="8" autocomplete="new-password" /></label>
+            </div>
+            <div class="form-error" id="pwError"></div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn--primary" id="pwSubmit">Update Password</button>
+            </div>
+          </form>
+        </div>
+      </div>`;
+
+    $("#pwForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const cur = String(fd.get("current") || "");
+      const next = String(fd.get("next") || "");
+      const conf = String(fd.get("confirm") || "");
+      const err = $("#pwError");
+      err.classList.remove("is-show");
+      const fail = (m) => { err.textContent = m; err.classList.add("is-show"); };
+
+      if (!cur || !next || !conf) return fail("All fields are required.");
+      if (next.length < 8) return fail("New password must be at least 8 characters.");
+      if (next !== conf) return fail("New passwords do not match.");
+      if (next === cur) return fail("New password must be different from the current one.");
+
+      const btn = $("#pwSubmit");
+      btn.disabled = true;
+      try {
+        const r = await fetch("/api/me/password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ currentPassword: cur, newPassword: next }),
+        });
+        const d = await r.json();
+        if (!d.ok) { fail(d.error || "Failed to update password."); return; }
+        toast("Password updated.", "success");
+        loadSettings();
+      } catch { fail("Network error. Could not reach the server."); }
+      finally { btn.disabled = false; }
+    });
+  }
 
   /* ============ Logout ============ */
   $("#logoutBtn").addEventListener("click", async () => {

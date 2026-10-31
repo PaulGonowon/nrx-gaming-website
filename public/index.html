@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NRX Gaming — Esports Organization</title>
+  <meta name="description" content="NRX Gaming — a professional esports organization competing in Valorant, CS2, MLBB and Dota 2." />
+  <link rel="icon" type="image/png" href="/img/logo-mark.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <div class="loader" id="loader">
+    <img class="loader__logo-img" src="/img/logo-text.png" alt="NRX Gaming" />
+    <div class="loader__bar"><span></span></div>
+  </div>
+
+  <canvas id="particles" class="particles"></canvas>
+  <div class="glow glow--1"></div>
+  <div class="glow glow--2"></div>
+  <div class="grid-overlay"></div>
+
+  <header class="nav" id="nav">
+    <a href="#home" class="brand">
+      <span class="brand__mark"><img src="/img/logo-mark.png" alt="" aria-hidden="true" /></span>
+      <span class="brand__text">NRX<em>GAMING</em></span>
+    </a>
+
+    <nav class="nav__links">
+      <a href="#home" class="nav__link is-active">Home</a>
+      <a href="#games" class="nav__link">Games</a>
+      <a href="#teams" class="nav__link">Teams</a>
+      <a href="#tournaments" class="nav__link">Tournaments</a>
+      <a href="#news" class="nav__link">News</a>
+    </nav>
+
+    <div class="nav__actions">
+      <button class="btn btn--signin" id="signInBtn">
+        <span class="btn--signin__icon">&#9654;</span>
+        <span class="btn--signin__label">Sign In</span>
+      </button>
+
+      <div class="user-chip" id="userChip" hidden>
+        <span class="user-chip__avatar" id="userAvatar">A</span>
+        <span class="user-chip__name" id="userChipName">admin</span>
+        <button class="user-chip__logout" id="logoutBtn" title="Sign out">&#9099;</button>
+      </div>
+
+      <button class="nav__burger" id="burger" aria-label="Menu"><span></span><span></span><span></span></button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="home">
+      <div class="hero__inner">
+        <span class="badge reveal" data-delay="0"><i></i> Southeast Asia • Tier 1 Roster</span>
+        <h1 class="hero__title reveal" data-delay="80">
+          WE DON'T PLAY<br /><span class="grad">WE DOMINATE</span>
+        </h1>
+        <p class="hero__sub reveal" data-delay="160">
+          NRX Gaming is a professional esports organization forged for championship runs in
+          Valorant, CS2, Mobile Legends and Dota 2.
+        </p>
+        <div class="hero__cta reveal" data-delay="240">
+          <a href="#tournaments" class="btn btn--primary">View Tournaments</a>
+          <a href="#teams" class="btn btn--ghost">Meet The Roster</a>
+        </div>
+      </div>
+
+      <div class="hero__scroll reveal" data-delay="320">
+        <span></span> Scroll to explore
+      </div>
+      <img class="hero__emblem" src="/img/logo-mark.png" alt="" aria-hidden="true" />
+    </section>
+
+    <section class="stats reveal" id="statsStrip">
+      <div class="stat">
+        <div class="stat__num" data-count="128" data-suffix="+">0</div>
+        <div class="stat__label">Match Wins</div>
+      </div>
+      <div class="stat">
+        <div class="stat__num" data-count="47">0</div>
+        <div class="stat__label">Tournaments</div>
+      </div>
+      <div class="stat">
+        <div class="stat__num" data-count="1320" data-suffix="+">0</div>
+        <div class="stat__label">Members</div>
+      </div>
+      <div class="stat">
+        <div class="stat__num" data-count="86" data-suffix="K">0</div>
+        <div class="stat__label">Followers</div>
+      </div>
+    </section>
+
+    <section class="section" id="games">
+      <div class="section__head reveal">
+        <span class="kicker">// Our Battlegrounds</span>
+        <h2>Games We <span class="grad">Compete In</span></h2>
+      </div>
+      <div class="games">
+        <article class="game-card reveal" data-delay="0">
+          <div class="game-card__icon">🎯</div>
+          <h3>Valorant</h3>
+          <p>Tactical 5v5 precision — our flagship division and the heart of NRX.</p>
+          <span class="game-card__tag">Active Roster</span>
+        </article>
+        <article class="game-card reveal" data-delay="80">
+          <div class="game-card__icon">💥</div>
+          <h3>CS2</h3>
+          <p>Counter-Strike 2 — disciplined executes, deep map pools, sharp aim.</p>
+          <span class="game-card__tag">Active Roster</span>
+        </article>
+        <article class="game-card reveal" data-delay="160">
+          <div class="game-card__icon">⚔️</div>
+          <h3>Mobile Legends</h3>
+          <p>Fast-paced MOBA dominance across Philippine and SEA circuits.</p>
+          <span class="game-card__tag">Active Roster</span>
+        </article>
+        <article class="game-card reveal" data-delay="240">
+          <div class="game-card__icon">🌌</div>
+          <h3>Dota 2</h3>
+          <p>Macro-minded strategy and drafting built for long-form tournaments.</p>
+          <span class="game-card__tag">Academy</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="teams">
+      <div class="section__head reveal">
+        <span class="kicker">// The Squad</span>
+        <h2>NRX <span class="grad">Roster</span></h2>
+      </div>
+      <div class="roster" id="rosterGrid"></div>
+    </section>
+
+    <section class="section" id="tournaments">
+      <div class="section__head reveal">
+        <span class="kicker">// Fixtures</span>
+        <h2>Live &amp; Upcoming <span class="grad">Matches</span></h2>
+      </div>
+      <div class="matches">
+        <div class="match reveal" data-delay="0">
+          <div class="match__meta"><span class="live-dot"></span> LIVE • BO3</div>
+          <div class="match__teams"><span class="match__team">NRX</span><span class="match__vs">VS</span><span class="match__team match__team--foe">Voidline</span></div>
+          <div class="match__score">1 <em>:</em> 1</div>
+        </div>
+        <div class="match reveal" data-delay="80">
+          <div class="match__meta">UPCOMING • 20:00 PHT</div>
+          <div class="match__teams"><span class="match__team">NRX</span><span class="match__vs">VS</span><span class="match__team match__team--foe">Apex Nine</span></div>
+          <div class="match__score">—</div>
+        </div>
+        <div class="match reveal" data-delay="160">
+          <div class="match__meta">UPCOMING • SEA Masters</div>
+          <div class="match__teams"><span class="match__team">NRX</span><span class="match__vs">VS</span><span class="match__team match__team--foe">Solstice</span></div>
+          <div class="match__score">—</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="news">
+      <div class="section__head reveal">
+        <span class="kicker">// Newsroom</span>
+        <h2>Latest <span class="grad">Headlines</span></h2>
+      </div>
+      <div class="news" id="newsGrid"></div>
+    </section>
+
+    <section class="cta reveal">
+      <h2>Ready to join the <span class="grad">NRX</span> movement?</h2>
+      <p>Partner with a roster built for the world stage.</p>
+      <button class="btn btn--primary" id="ctaSignIn">Sign In to Admin Console</button>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <img class="footer__logo" src="/img/logo-text.png" alt="NRX Gaming" />
+    <p>© <span id="year"></span> NRX Gaming. All rights reserved. Built for the win.</p>
+  </footer>
+
+  <div class="modal" id="modal" aria-hidden="true">
+    <div class="modal__backdrop" data-close></div>
+    <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <button class="modal__close" data-close aria-label="Close">&times;</button>
+
+      <div class="modal__glow"></div>
+      <div class="modal__head">
+        <span class="brand__mark brand__mark--lg"><img src="/img/logo-mark.png" alt="" aria-hidden="true" /></span>
+        <h2 id="modalTitle">Admin Access</h2>
+        <p>Sign in to manage the NRX Gaming console.</p>
+      </div>
+
+      <form class="modal__form" id="loginForm" novalidate>
+        <label class="field">
+          <span class="field__label">Username</span>
+          <input type="text" id="username" name="username" autocomplete="username" placeholder="admin" required />
+        </label>
+        <label class="field">
+          <span class="field__label">Password</span>
+          <span class="field__pass">
+            <input type="password" id="password" name="password" autocomplete="current-password" placeholder="••••••••" required />
+            <button type="button" class="field__toggle" id="togglePass">SHOW</button>
+          </span>
+        </label>
+
+        <div class="modal__error" id="loginError" role="alert"></div>
+
+        <button type="submit" class="btn btn--primary btn--block" id="loginSubmit">
+          <span class="btn__spinner"></span>
+          <span class="btn__text">Sign In</span>
+        </button>
+
+        <p class="modal__hint">
+          Default admin — <code>admin</code> / <code>NRX@Admin2024</code>
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

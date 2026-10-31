@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NRX Gaming — Admin Console</title>
+  <link rel="icon" type="image/png" href="/img/logo-mark.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
+</head>
+<body>
+  <div class="admin">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__head">
+        <span class="brand__mark"><img src="/img/logo-mark.png" alt="" /></span>
+        <div>
+          <div class="sidebar__title">NRX <b>GAMING</b></div>
+          <div class="sidebar__sub">Admin Console</div>
+        </div>
+      </div>
+
+      <nav class="sidebar__nav">
+        <p class="sidebar__group">Main</p>
+        <button class="nav-item is-active" data-view="overview"><span class="nav-item__ico">◇</span> Overview</button>
+
+        <p class="sidebar__group">Records</p>
+        <button class="nav-item" data-view="members"><span class="nav-item__ico">◉</span> Members <em data-count="members">0</em></button>
+        <button class="nav-item" data-view="teams"><span class="nav-item__ico">▣</span> Teams <em data-count="teams">0</em></button>
+        <button class="nav-item" data-view="championships"><span class="nav-item__ico">♛</span> Championships <em data-count="championships">0</em></button>
+        <button class="nav-item" data-view="sponsorships"><span class="nav-item__ico">✦</span> Sponsors &amp; Partners <em data-count="sponsorships">0</em></button>
+
+        <p class="sidebar__group">Management</p>
+        <button class="nav-item" data-view="announcements"><span class="nav-item__ico">◎</span> Announcements</button>
+      </nav>
+
+      <button class="sidebar__logout" id="logoutBtn"><span>&#9099;</span> Sign Out</button>
+    </aside>
+
+    <div class="sidebar__scrim" id="scrim"></div>
+
+    <!-- Main -->
+    <div class="main">
+      <header class="topbar">
+        <button class="topbar__burger" id="burger" aria-label="Menu"><span></span><span></span><span></span></button>
+        <div class="topbar__left">
+          <h1 id="viewTitle">Overview</h1>
+          <p id="viewDate"></p>
+        </div>
+        <div class="topbar__right">
+          <a class="topbar__link" href="/" target="_blank" rel="noopener">View Site &#8599;</a>
+          <button class="topbar__bell" title="Notifications"><span></span></button>
+          <div class="topbar__user">
+            <span class="avatar" id="userAvatar">A</span>
+            <div>
+              <div class="topbar__name" id="userName">Admin</div>
+              <div class="topbar__role">Administrator</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="content">
+        <!-- OVERVIEW -->
+        <section class="view" data-view="overview">
+          <div class="stats" id="statsGrid"></div>
+
+          <div class="split">
+            <div class="panel">
+              <div class="panel__head">
+                <h3>Recently Added Members</h3>
+                <button class="link" data-goto="members">Manage all</button>
+              </div>
+              <div class="table-wrap" id="recentMembers"></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel__head"><h3>Quick Actions</h3></div>
+              <div class="quick">
+                <button class="quick__btn" data-quick="members"><span>◉</span> Add Member</button>
+                <button class="quick__btn" data-quick="teams"><span>▣</span> Add Team</button>
+                <button class="quick__btn" data-quick="championships"><span>♛</span> Add Championship</button>
+                <button class="quick__btn" data-quick="sponsorships"><span>✦</span> Add Sponsor</button>
+              </div>
+
+              <div class="panel__head" style="margin-top:26px"><h3>Recent Titles</h3></div>
+              <ul class="activity" id="recentTitles"></ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- RECORD VIEWS (rendered by JS) -->
+        <section class="view" data-view="members" hidden></section>
+        <section class="view" data-view="teams" hidden></section>
+        <section class="view" data-view="championships" hidden></section>
+        <section class="view" data-view="sponsorships" hidden></section>
+
+        <!-- ANNOUNCEMENTS -->
+        <section class="view" data-view="announcements" hidden>
+          <div class="panel">
+            <div class="panel__head"><h3>Publish an Announcement</h3></div>
+            <form class="inline-form" id="annForm">
+              <input type="text" id="annInput" placeholder="Write a headline for the public newsroom..." />
+              <button class="btn btn--primary" type="submit">Publish</button>
+            </form>
+            <ul class="ann-list" id="annList"></ul>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Record modal -->
+  <div class="modal" id="recordModal" aria-hidden="true">
+    <div class="modal__backdrop" data-close></div>
+    <div class="modal__panel" role="dialog" aria-modal="true">
+      <button class="modal__close" data-close>&times;</button>
+      <h2 id="modalFormTitle">Add Record</h2>
+      <form id="recordForm">
+        <div class="form-grid" id="formFields"></div>
+        <div class="form-error" id="formError"></div>
+        <div class="form-actions">
+          <button type="button" class="btn btn--ghost" data-close>Cancel</button>
+          <button type="submit" class="btn btn--primary" id="recordSubmit">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Confirm modal -->
+  <div class="modal" id="confirmModal" aria-hidden="true">
+    <div class="modal__backdrop" data-close></div>
+    <div class="modal__panel modal__panel--sm" role="dialog" aria-modal="true">
+      <button class="modal__close" data-close>&times;</button>
+      <h2>Delete Record</h2>
+      <p class="confirm-text" id="confirmText">Are you sure you want to delete this record?</p>
+      <div class="form-actions">
+        <button type="button" class="btn btn--ghost" data-close>Cancel</button>
+        <button type="button" class="btn btn--danger" id="confirmDelete">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>

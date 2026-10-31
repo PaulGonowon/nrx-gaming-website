@@ -1,0 +1,25 @@
+{
+  "name": "nrx-gaming-website",
+  "version": "1.0.0",
+  "description": "NRX Gaming - Modern esports organization website with secure admin login.",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "esports",
+    "gaming",
+    "nrx"
+  ],
+  "author": "NRX Gaming",
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0"
+  }
+}

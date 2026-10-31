@@ -1,0 +1,390 @@
+const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
+const express = require("express");
+const session = require("express-session");
+const bcrypt = require("bcryptjs");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Behind Render's reverse proxy so req.ip / req.secure are correct
+app.set("trust proxy", 1);
+
+const DATA_DIR = path.join(__dirname, "data");
+const USERS_FILE = path.join(DATA_DIR, "users.json");
+const UPLOADS_DIR = path.join(__dirname, "public", "uploads");
+
+const ADMIN_USERNAME = process.env.NRX_ADMIN_USER || "admin";
+const ADMIN_PASSWORD = process.env.NRX_ADMIN_PASS || "NRX@Admin2024";
+
+/* ------------------------------------------------------------------ */
+/*  JSON store helpers                                                 */
+/* ------------------------------------------------------------------ */
+function ensureDir() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
+const PHOTO_RE = /^data:image\/(png|jpe?g|webp|gif);base64,([A-Za-z0-9+/=\r\n]+)$/;
+
+function removePhoto(url) {
+  if (typeof url !== "string" || !url.startsWith("/uploads/")) return;
+  try {
+    fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(url)));
+  } catch {}
+}
+
+function collection(name, seed) {
+  const file = path.join(DATA_DIR, name + ".json");
+  if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify(seed, null, 2));
+  return {
+    file,
+    read() {
+      try {
+        return JSON.parse(fs.readFileSync(file, "utf8"));
+      } catch {
+        return [];
+      }
+    },
+    write(data) {
+      fs.writeFileSync(file, JSON.stringify(data, null, 2));
+    },
+  };
+}
+
+ensureDir();
+
+/* ------------------------------------------------------------------ */
+/*  Users / admin account                                              */
+/* ------------------------------------------------------------------ */
+const users = collection("users", [
+  {
+    id: crypto.randomUUID(),
+    username: ADMIN_USERNAME,
+    password: bcrypt.hashSync(ADMIN_PASSWORD, 10),
+    role: "admin",
+    displayName: "NRX Administrator",
+    createdAt: new Date().toISOString(),
+  },
+]);
+
+if (fs.existsSync(USERS_FILE) && users.read().length && !users.read()[0].password.startsWith("$2")) {
+  const fixed = users.read().map((u) => ({ ...u, password: bcrypt.hashSync(u.password, 10) }));
+  users.write(fixed);
+}
+
+function readUsers() {
+  return users.read();
+}
+function writeUsers(list) {
+  users.write(list);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Site data (public roster / stats)                                  */
+/* ------------------------------------------------------------------ */
+const siteStats = {
+  wins: 128,
+  tournaments: 47,
+  members: 1320,
+  followers: 86400,
+  announcements: [
+    "NRX Gaming qualifies for the Southeast Asia Masters 2024.",
+    "New Valorant roster unveiled — meet NRX.Vyper and NRX.Orbit.",
+    "Merch drop: NRX x Voidline limited edition jersey is live.",
+  ],
+};
+
+/* ------------------------------------------------------------------ */
+/*  Editable collections (CRUD)                                        */
+/* ------------------------------------------------------------------ */
+const members = collection("members", [
+  { id: crypto.randomUUID(), ingameName: "NRX.Vyper", fullName: "Marco Reyes", email: "vyper@nrx.gg", role: "Player", team: "Valorant", status: "Active", joinedAt: "2023-02-14" },
+  { id: crypto.randomUUID(), ingameName: "NRX.Zenith", fullName: "Liam Santos", email: "zenith@nrx.gg", role: "Player", team: "CS2", status: "Active", joinedAt: "2023-03-02" },
+  { id: crypto.randomUUID(), ingameName: "NRX.Kaizen", fullName: "Jared Cruz", email: "kaizen@nrx.gg", role: "Player", team: "MLBB", status: "Active", joinedAt: "2022-11-20" },
+  { id: crypto.randomUUID(), ingameName: "NRX.Nova", fullName: "Ana Dela Cruz", email: "nova@nrx.gg", role: "Player", team: "Dota 2", status: "Active", joinedAt: "2023-01-09" },
+  { id: crypto.randomUUID(), ingameName: "NRX.Coach", fullName: "Ruel Bautista", email: "coach@nrx.gg", role: "Coach", team: "All", status: "Active", joinedAt: "2021-08-01" },
+  { id: crypto.randomUUID(), ingameName: "NRX.Orbit", fullName: "Ken Villamor", email: "orbit@nrx.gg", role: "Player", team: "Valorant", status: "Pending", joinedAt: "2024-05-12" },
+]);
+
+const teams = collection("teams", [
+  { id: crypto.randomUUID(), name: "NRX Valorant", game: "Valorant", region: "SEA", manager: "Ruel Bautista", status: "Active", roster: "NRX.Vyper, NRX.Orbit, NRX.Kaze, NRX.Lumen, NRX.Sable" },
+  { id: crypto.randomUUID(), name: "NRX CS2", game: "CS2", region: "SEA", manager: "Ruel Bautista", status: "Active", roster: "NRX.Zenith, NRX.Blitz, NRX.Frost, NRX.Echo, NRX.Rift" },
+  { id: crypto.randomUUID(), name: "NRX MLBB", game: "Mobile Legends", region: "PH", manager: "Grace Lim", status: "Active", roster: "NRX.Kaizen, NRX.Riptide, NRX.Yuki, NRX.Drake, NRX.Mika" },
+  { id: crypto.randomUUID(), name: "NRX Dota 2", game: "Dota 2", region: "SEA", manager: "Grace Lim", status: "Academy", roster: "NRX.Nova, NRX.Apex, NRX.Cinder, NRX.Rune, NRX.Wisp" },
+]);
+
+const championships = collection("championships", [
+  { id: crypto.randomUUID(), name: "SEA Masters Season 4", game: "Valorant", team: "NRX Valorant", placement: "1st Place", prize: "₱1,500,000", venue: "Singapore", date: "2024-03-18", status: "Champion" },
+  { id: crypto.randomUUID(), name: "PH National Cup 2023", game: "Mobile Legends", team: "NRX MLBB", placement: "2nd Place", prize: "₱500,000", venue: "Manila", date: "2023-10-07", status: "Runner-up" },
+  { id: crypto.randomUUID(), name: "APAC Clash Finals", game: "CS2", team: "NRX CS2", placement: "3rd Place", prize: "₱250,000", venue: "Bangkok", date: "2023-07-22", status: "Qualified" },
+  { id: crypto.randomUUID(), name: "Campus Esports League", game: "Dota 2", team: "NRX Dota 2", placement: "1st Place", prize: "₱80,000", venue: "Online", date: "2022-12-11", status: "Champion" },
+]);
+
+const sponsorships = collection("sponsorships", [
+  { id: crypto.randomUUID(), name: "Voidline Peripherals", type: "Sponsor", tier: "Platinum", contactPerson: "Ella Torres", email: "ella@voidline.co", amount: "₱2,000,000", startDate: "2024-01-01", endDate: "2024-12-31", status: "Active" },
+  { id: crypto.randomUUID(), name: "HyperFuel Energy", type: "Partner", tier: "Gold", contactPerson: "Mark Dizon", email: "mark@hyperfuel.ph", amount: "₱850,000", startDate: "2024-02-15", endDate: "2025-02-14", status: "Active" },
+  { id: crypto.randomUUID(), name: "NeonByte Studios", type: "Sponsor", tier: "Silver", contactPerson: "Carla Uy", email: "partners@neonbyte.gg", amount: "₱300,000", startDate: "2023-09-01", endDate: "2024-08-31", status: "Expired" },
+]);
+
+/* ------------------------------------------------------------------ */
+/*  Middleware                                                         */
+/* ------------------------------------------------------------------ */
+app.use(express.json({ limit: "8mb" }));
+
+app.use(
+  session({
+    name: "nrx.sid",
+    secret: process.env.NRX_SESSION_SECRET || "nrx-gaming-session-secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: { httpOnly: true, sameSite: "lax", secure: "auto", maxAge: 1000 * 60 * 60 * 4 },
+  })
+);
+
+function requireAuth(req, res, next) {
+  if (req.session && req.session.user) return next();
+  res.status(401).json({ ok: false, error: "Authentication required." });
+}
+
+function requireAdmin(req, res, next) {
+  if (req.session && req.session.user && req.session.user.role === "admin") return next();
+  res.status(403).json({ ok: false, error: "Admin privileges required." });
+}
+
+const loginAttempts = new Map();
+function throttleLogin(req, res, next) {
+  const key = req.ip;
+  const now = Date.now();
+  const entry = loginAttempts.get(key) || { count: 0, ts: now };
+  if (now - entry.ts > 60_000) {
+    entry.count = 0;
+    entry.ts = now;
+  }
+  if (entry.count >= 8) {
+    return res.status(429).json({ ok: false, error: "Too many attempts. Try again in a minute." });
+  }
+  entry.count += 1;
+  loginAttempts.set(key, entry);
+  next();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Auth routes                                                        */
+/* ------------------------------------------------------------------ */
+app.post("/api/login", throttleLogin, async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ ok: false, error: "Username and password are required." });
+  }
+
+  const user = readUsers().find(
+    (u) => u.username.toLowerCase() === String(username).trim().toLowerCase()
+  );
+  const genericError = { ok: false, error: "Invalid username or password." };
+  if (!user) return res.status(401).json(genericError);
+
+  const valid = await bcrypt.compare(String(password), user.password);
+  if (!valid) return res.status(401).json(genericError);
+
+  req.session.user = {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    displayName: user.displayName,
+  };
+
+  res.json({
+    ok: true,
+    user: { username: user.username, role: user.role, displayName: user.displayName },
+  });
+});
+
+app.post("/api/logout", (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie("nrx.sid");
+    res.json({ ok: true });
+  });
+});
+
+app.get("/api/session", (req, res) => {
+  if (req.session && req.session.user) {
+    return res.json({ ok: true, authenticated: true, user: req.session.user });
+  }
+  res.json({ ok: true, authenticated: false });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Public site data                                                   */
+/* ------------------------------------------------------------------ */
+const ROSTER_ICONS = ["🔥", "🎯", "⚔️", "🌌", "🌊", "🛰️"];
+app.get("/api/roster", (req, res) => {
+  const players = members
+    .read()
+    .filter((m) => m.role === "Player")
+    .slice(0, 6)
+    .map((m, i) => ({
+      tag: m.ingameName,
+      role: m.team || "Player",
+      game: m.team || "NRX",
+      img: ROSTER_ICONS[i % ROSTER_ICONS.length],
+      photo: m.photo || "",
+      wins: 150 + i * 41,
+    }));
+  res.json({ ok: true, players });
+});
+
+app.get("/api/stats", (req, res) => {
+  res.json({ ok: true, stats: siteStats });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Generic CRUD factory for admin records                             */
+/* ------------------------------------------------------------------ */
+function registerCrud(name, store, requiredFields) {
+  const base = "/api/admin/" + name;
+
+  app.get(base, requireAuth, requireAdmin, (req, res) => {
+    res.json({ ok: true, items: store.read() });
+  });
+
+  app.post(base, requireAuth, requireAdmin, (req, res) => {
+    const body = req.body || {};
+    const missing = requiredFields.filter((f) => !String(body[f] ?? "").trim());
+    if (missing.length) {
+      return res.status(400).json({ ok: false, error: "Missing fields: " + missing.join(", ") });
+    }
+    const record = { id: crypto.randomUUID() };
+    for (const key of Object.keys(body)) {
+      if (key === "id") continue;
+      record[key] = body[key];
+    }
+    const list = store.read();
+    list.unshift(record);
+    store.write(list);
+    res.status(201).json({ ok: true, item: record });
+  });
+
+  app.put(base + "/:id", requireAuth, requireAdmin, (req, res) => {
+    const list = store.read();
+    const idx = list.findIndex((i) => i.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ ok: false, error: "Record not found." });
+
+    const body = req.body || {};
+    const oldPhoto = list[idx].photo;
+    const merged = { ...list[idx], ...body, id: list[idx].id };
+    const missing = requiredFields.filter((f) => !String(merged[f] ?? "").trim());
+    if (missing.length) {
+      return res.status(400).json({ ok: false, error: "Missing fields: " + missing.join(", ") });
+    }
+    list[idx] = merged;
+    store.write(list);
+    if (oldPhoto && oldPhoto !== merged.photo) removePhoto(oldPhoto);
+    res.json({ ok: true, item: merged });
+  });
+
+  app.delete(base + "/:id", requireAuth, requireAdmin, (req, res) => {
+    const list = store.read();
+    const existing = list.find((i) => i.id === req.params.id);
+    if (!existing) return res.status(404).json({ ok: false, error: "Record not found." });
+    store.write(list.filter((i) => i.id !== req.params.id));
+    if (existing.photo) removePhoto(existing.photo);
+    res.json({ ok: true });
+  });
+}
+
+registerCrud("members", members, ["ingameName", "fullName", "email", "role", "status"]);
+registerCrud("teams", teams, ["name", "game", "status"]);
+registerCrud("championships", championships, ["name", "game", "team", "placement", "date"]);
+registerCrud("sponsorships", sponsorships, ["name", "type", "tier", "status"]);
+
+/* ------------------------------------------------------------------ */
+/*  Member photo upload (base64 -> /uploads)                           */
+/* ------------------------------------------------------------------ */
+app.post("/api/admin/upload-photo", requireAuth, requireAdmin, (req, res) => {
+  const { dataUrl } = req.body || {};
+  const match = PHOTO_RE.exec(String(dataUrl || ""));
+  if (!match) {
+    return res.status(400).json({ ok: false, error: "Invalid image. Use PNG, JPEG, WebP or GIF." });
+  }
+  const ext = match[1] === "jpeg" ? "jpg" : match[1];
+  const buffer = Buffer.from(match[2].replace(/\r?\n/g, ""), "base64");
+  if (!buffer.length) {
+    return res.status(400).json({ ok: false, error: "Empty image data." });
+  }
+  if (buffer.length > 5 * 1024 * 1024) {
+    return res.status(413).json({ ok: false, error: "Image is too large. Maximum 5MB." });
+  }
+  const name = crypto.randomUUID() + "." + ext;
+  fs.writeFileSync(path.join(UPLOADS_DIR, name), buffer);
+  res.status(201).json({ ok: true, url: "/uploads/" + name });
+});
+
+app.delete("/api/admin/upload-photo", requireAuth, requireAdmin, (req, res) => {
+  const url = (req.body || {}).url;
+  removePhoto(String(url || ""));
+  res.json({ ok: true });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Dashboard summary + announcements                                  */
+/* ------------------------------------------------------------------ */
+app.get("/api/admin/summary", requireAuth, requireAdmin, (req, res) => {
+  const m = members.read();
+  res.json({
+    ok: true,
+    summary: {
+      members: m.length,
+      activeMembers: m.filter((x) => x.status === "Active").length,
+      teams: teams.read().length,
+      championships: championships.read().length,
+      titles: championships.read().filter((c) => c.status === "Champion").length,
+      sponsorships: sponsorships.read().length,
+      activeSponsors: sponsorships.read().filter((s) => s.status === "Active").length,
+    },
+    recentMembers: m.slice(0, 5),
+    recentChampionships: championships.read().slice(0, 4),
+  });
+});
+
+app.get("/api/admin/announcements", requireAuth, requireAdmin, (req, res) => {
+  res.json({ ok: true, announcements: siteStats.announcements });
+});
+
+app.post("/api/admin/announcement", requireAuth, requireAdmin, (req, res) => {
+  const { message } = req.body || {};
+  if (!message || !String(message).trim()) {
+    return res.status(400).json({ ok: false, error: "Announcement message is required." });
+  }
+  siteStats.announcements.unshift(String(message).trim());
+  siteStats.announcements = siteStats.announcements.slice(0, 6);
+  res.json({ ok: true, announcements: siteStats.announcements });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Protected dashboard page + static assets                           */
+/* ------------------------------------------------------------------ */
+function serveDashboard(req, res, next) {
+  if (!req.session || !req.session.user) return res.redirect("/");
+  res.sendFile(path.join(__dirname, "public", "dashboard.html"));
+}
+
+app.get("/dashboard", serveDashboard);
+app.get("/dashboard.html", serveDashboard);
+
+app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"], index: "index.html" }));
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+app.listen(PORT, () => {
+  console.log("==============================================");
+  console.log("  NRX GAMING  |  server online");
+  console.log("  Site      : http://localhost:" + PORT);
+  console.log("  Dashboard : http://localhost:" + PORT + "/dashboard");
+  console.log("  Admin user: " + ADMIN_USERNAME);
+  console.log("  Admin pass: " + ADMIN_PASSWORD);
+  console.log("==============================================");
+});

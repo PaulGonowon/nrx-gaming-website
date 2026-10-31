@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: nrx-gaming
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NRX_SESSION_SECRET
+        generateValue: true
+      - key: NRX_ADMIN_USER
+        value: admin
+      - key: NRX_ADMIN_PASS
+        value: NRX@Admin2024

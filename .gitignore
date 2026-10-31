@@ -1,0 +1,11 @@
+node_modules/
+npm-debug.log*
+.env
+.DS_Store
+
+# runtime data (auto-seeded by server.js on boot)
+data/
+
+# uploaded member photos
+public/uploads/*
+!public/uploads/.gitkeep

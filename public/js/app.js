@@ -242,32 +242,6 @@
   });
 
   /* ---------------- Session / auth ---------------- */
-  const userChip = $("#userChip");
-
-  function showUser(user) {
-    signInBtn.hidden = true;
-    userChip.hidden = false;
-    $("#userChipName").textContent = user.displayName || user.username;
-    $("#userAvatar").textContent = (user.displayName || user.username).charAt(0).toUpperCase();
-  }
-  userChip.addEventListener("click", (e) => {
-    if (e.target.closest("#logoutBtn")) return;
-    window.location.href = "/dashboard";
-  });
-  function hideUser() {
-    signInBtn.hidden = false;
-    userChip.hidden = true;
-  }
-
-  async function checkSession() {
-    try {
-      const res = await fetch("/api/session");
-      const data = await res.json();
-      if (data.authenticated) showUser(data.user);
-    } catch (e) {
-      console.error(e);
-    }
-  }
 
   const loginForm = $("#loginForm");
   const loginBtn = $("#loginSubmit");
@@ -303,7 +277,6 @@
         return;
       }
 
-      showUser(data.user);
       closeModal();
       loginForm.reset();
       toast("Welcome back, " + (data.user.displayName || data.user.username) + "! Opening console…", "success");
@@ -317,16 +290,9 @@
     }
   });
 
-  $("#logoutBtn").addEventListener("click", async () => {
-    await fetch("/api/logout", { method: "POST" });
-    hideUser();
-    toast("Signed out successfully.", "success");
-  });
-
   /* ---------------- Misc ---------------- */
   $("#year").textContent = new Date().getFullYear();
 
-  checkSession();
   loadRoster();
   loadNews();
 })();

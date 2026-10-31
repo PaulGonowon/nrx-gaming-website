@@ -114,13 +114,40 @@
         { key: "status", label: "Status", type: "select", required: true, options: ["Active", "Pending", "Expired"] },
       ],
     },
+    contracts: {
+      title: "Contracts",
+      viewTitle: "Contracts & Agreements",
+      addLabel: "Add Contract",
+      searchKey: "party",
+      icon: "✎", color: "amber",
+      endpoint: "/api/admin/contracts",
+      columns: [
+        { key: "party", label: "Party / Signatory" },
+        { key: "type", label: "Contract Type" },
+        { key: "position", label: "Role / Position" },
+        { key: "value", label: "Value" },
+        { key: "startDate", label: "Start" },
+        { key: "endDate", label: "End" },
+        { key: "status", label: "Status", badge: true },
+      ],
+      fields: [
+        { key: "party", label: "Party / Signatory", type: "text", required: true, placeholder: "NRX.Vyper / Voidline Inc." },
+        { key: "type", label: "Contract Type", type: "select", required: true, options: ["Player Contract", "Sponsorship Contract", "Staff Contract", "Tryout Agreement", "Partnership Agreement"] },
+        { key: "position", label: "Role / Position", type: "text", placeholder: "Duelist / Valorant" },
+        { key: "value", label: "Value / Salary", type: "text", placeholder: "₱85,000 / month" },
+        { key: "startDate", label: "Start Date", type: "date" },
+        { key: "endDate", label: "End Date", type: "date" },
+        { key: "status", label: "Status", type: "select", required: true, options: ["Active", "Expiring", "Expired", "Draft"] },
+      ],
+    },
   };
 
   const BADGE_MAP = {
     Active: "green", Champion: "green", Platinum: "green",
-    Pending: "amber", Qualified: "amber", Gold: "amber", Academy: "amber",
+    Pending: "amber", Qualified: "amber", Gold: "amber", Academy: "amber", Expiring: "amber",
     Expired: "red", Inactive: "red", "Runner-up": "magenta",
     Silver: "cyan", Bronze: "amber", "Participated": "violet",
+    Draft: "violet", Renewed: "cyan",
   };
 
   /* ============ State ============ */
@@ -170,6 +197,7 @@
       teams: SCHEMAS.teams.viewTitle,
       championships: SCHEMAS.championships.viewTitle,
       sponsorships: SCHEMAS.sponsorships.viewTitle,
+      contracts: SCHEMAS.contracts.viewTitle,
       announcements: "Announcements",
     };
     $("#viewTitle").textContent = titles[view] || view;
@@ -205,6 +233,7 @@
       $('[data-count="teams"]').textContent = s.teams;
       $('[data-count="championships"]').textContent = s.championships;
       $('[data-count="sponsorships"]').textContent = s.sponsorships;
+      $('[data-count="contracts"]').textContent = s.contracts;
 
       // stat cards
       $("#statsGrid").innerHTML = [

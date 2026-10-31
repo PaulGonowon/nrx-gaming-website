@@ -128,6 +128,14 @@ const sponsorships = collection("sponsorships", [
   { id: crypto.randomUUID(), name: "NeonByte Studios", type: "Sponsor", tier: "Silver", contactPerson: "Carla Uy", email: "partners@neonbyte.gg", amount: "₱300,000", startDate: "2023-09-01", endDate: "2024-08-31", status: "Expired" },
 ]);
 
+const contracts = collection("contracts", [
+  { id: crypto.randomUUID(), party: "NRX.Vyper", type: "Player Contract", position: "Duelist / Valorant", value: "₱85,000 / month", startDate: "2024-01-15", endDate: "2025-01-14", status: "Active" },
+  { id: crypto.randomUUID(), party: "NRX.Kaizen", type: "Player Contract", position: "Mid Laner / MLBB", value: "₱72,000 / month", startDate: "2023-09-01", endDate: "2025-08-31", status: "Active" },
+  { id: crypto.randomUUID(), party: "Voidline Peripherals", type: "Sponsorship Contract", position: "Platinum Sponsor", value: "₱2,000,000 / year", startDate: "2024-01-01", endDate: "2024-12-31", status: "Expiring" },
+  { id: crypto.randomUUID(), party: "NRX.Riptide", type: "Player Contract", position: "Jungler / MLBB", value: "₱60,000 / month", startDate: "2023-11-01", endDate: "2024-10-31", status: "Expired" },
+  { id: crypto.randomUUID(), party: "NRX.Orbit", type: "Tryout Agreement", position: "IGL / Valorant", value: "Trial period", startDate: "2024-05-12", endDate: "2024-07-12", status: "Draft" },
+]);
+
 /* ------------------------------------------------------------------ */
 /*  Middleware                                                         */
 /* ------------------------------------------------------------------ */
@@ -298,6 +306,7 @@ registerCrud("members", members, ["ingameName", "fullName", "email", "role", "st
 registerCrud("teams", teams, ["name", "game", "status"]);
 registerCrud("championships", championships, ["name", "game", "team", "placement", "date"]);
 registerCrud("sponsorships", sponsorships, ["name", "type", "tier", "status"]);
+registerCrud("contracts", contracts, ["party", "type", "status"]);
 
 /* ------------------------------------------------------------------ */
 /*  Member photo upload (base64 -> /uploads)                           */
@@ -342,6 +351,8 @@ app.get("/api/admin/summary", requireAuth, requireAdmin, (req, res) => {
       titles: championships.read().filter((c) => c.status === "Champion").length,
       sponsorships: sponsorships.read().length,
       activeSponsors: sponsorships.read().filter((s) => s.status === "Active").length,
+      contracts: contracts.read().length,
+      activeContracts: contracts.read().filter((c) => c.status === "Active").length,
     },
     recentMembers: m.slice(0, 5),
     recentChampionships: championships.read().slice(0, 4),

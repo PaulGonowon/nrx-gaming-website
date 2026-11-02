@@ -35,7 +35,7 @@ if (usePg) {
   pool = new Pool({
     connectionString: normalizedUrl,
     ssl: localHost ? false : { rejectUnauthorized: false },
-    max: 5,
+    max: 10,
     connectionTimeoutMillis: 15000,
     idleTimeoutMillis: 30000,
   });
@@ -70,6 +70,13 @@ async function init() {
   await pool.query(
     "CREATE TABLE IF NOT EXISTS uploads (name TEXT PRIMARY KEY, mime TEXT NOT NULL, data BYTEA NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
   );
+  // Session table for connect-pg-simple (matches the module's expected schema).
+  await pool.query(
+    'CREATE TABLE IF NOT EXISTS "session" (' +
+      '"sid" varchar NOT NULL, "sess" json NOT NULL, "expire" timestamp(6) NOT NULL, ' +
+      'CONSTRAINT "session_pkey" PRIMARY KEY ("sid"))'
+  );
+  await pool.query('CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire")');
   await importLocalUploads();
 }
 
@@ -206,6 +213,7 @@ async function deleteUpload(name) {
 
 module.exports = {
   driver: usePg ? "postgres" : "local-files",
+  pool,
   init,
   readDoc,
   writeDoc,

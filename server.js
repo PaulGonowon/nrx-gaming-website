@@ -143,15 +143,48 @@ const contracts = collection("contracts", [
 /* ------------------------------------------------------------------ */
 app.use(express.json({ limit: "8mb" }));
 
+// Sessions live in Postgres when DATABASE_URL is set (survive restarts/deploys),
+// and fall back to express-session's MemoryStore for local runs without a database.
+function createSessionStore() {
+  if (storage.driver !== "postgres" || !storage.pool) return undefined;
+  const PgStore = require("connect-pg-simple")(session);
+  return new PgStore({
+    pool: storage.pool,
+    tableName: "session",
+    disableTouch: true,
+  });
+}
+
 app.use(
   session({
     name: "nrx.sid",
     secret: process.env.NRX_SESSION_SECRET || "nrx-gaming-session-secret",
+    store: createSessionStore(),
     resave: false,
     saveUninitialized: false,
     cookie: { httpOnly: true, sameSite: "lax", secure: "auto", maxAge: 1000 * 60 * 60 * 4 },
   })
 );
+
+function regenerateSession(req) {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate((err) => (err ? reject(err) : resolve()));
+  });
+}
+
+// Drops a user's stored sessions. Used when a password changes so old
+// logins (other devices, or a compromised account) stop working.
+async function revokeUserSessions(userId, exceptSid) {
+  if (!storage.pool) return;
+  try {
+    const sql =
+      "DELETE FROM \"session\" WHERE sess -> 'user' ->> 'id' = $1" +
+      (exceptSid ? " AND sid <> $2" : "");
+    await storage.pool.query(sql, exceptSid ? [userId, exceptSid] : [userId]);
+  } catch (err) {
+    console.error("[session] could not revoke sessions:", err.message);
+  }
+}
 
 function requireAuth(req, res, next) {
   if (req.session && req.session.user) return next();
@@ -220,6 +253,9 @@ app.post("/api/login", throttleLogin, ah(async (req, res) => {
   fresh.lastLogin = new Date().toISOString();
   await writeUsers(list);
 
+  // Fresh session id on login so a pre-set cookie cannot be reused (fixation).
+  await regenerateSession(req);
+
   req.session.user = {
     id: fresh.id,
     username: fresh.username,
@@ -280,6 +316,7 @@ app.post("/api/me/password", requireAuth, ah(async (req, res) => {
   list[idx].password = bcrypt.hashSync(pass, 10);
   list[idx].passwordChangedAt = new Date().toISOString();
   await writeUsers(list);
+  await revokeUserSessions(u.id, req.sessionID);
   await logActivity(req, "password", "Changed own account password");
   res.json({ ok: true });
 }));
@@ -541,6 +578,10 @@ app.put("/api/admin/users/:id", requireAuth, requireAdmin, ah(async (req, res) =
   if (req.session.user && req.session.user.id === target.id) {
     req.session.user.displayName = target.displayName;
     req.session.user.role = target.role;
+  }
+  if (pass) {
+    const keepSid = req.session.user && req.session.user.id === target.id ? req.sessionID : undefined;
+    await revokeUserSessions(target.id, keepSid);
   }
   await logActivity(req, "update", "user \u201c" + target.username + "\u201d" + (pass ? " (password reset)" : ""));
   res.json({ ok: true, item: publicUser(target) });

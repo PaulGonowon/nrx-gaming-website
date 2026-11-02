@@ -46,11 +46,21 @@ const users = collection("users", [
     id: crypto.randomUUID(),
     username: ADMIN_USERNAME,
     password: bcrypt.hashSync(ADMIN_PASSWORD, 10),
-    role: "admin",
+    role: "webadmin",
     displayName: "NRX Administrator",
+    primary: true,
     createdAt: new Date().toISOString(),
   },
 ]);
+
+// Role model
+//  webadmin : "NRX Web Admin" — owner account, full access to the whole site.
+//  admin    : "Admin" — everything except the Landing Page category, Users and Activity Logs.
+//  staff    : "Staff" — Members and Teams only.
+const ROLE_LABELS = { webadmin: "NRX Web Admin", admin: "Admin", staff: "Staff" };
+function roleLabel(role) {
+  return ROLE_LABELS[role] || role || "";
+}
 
 function readUsers() {
   return users.read();
@@ -250,16 +260,20 @@ function requireAuth(req, res, next) {
   res.status(401).json({ ok: false, error: "Authentication required." });
 }
 
-function requireAdmin(req, res, next) {
-  if (req.session && req.session.user && req.session.user.role === "admin") return next();
-  res.status(403).json({ ok: false, error: "Admin privileges required." });
+function requireRole(...roles) {
+  return function (req, res, next) {
+    const u = req.session && req.session.user;
+    if (u && roles.includes(u.role)) return next();
+    res.status(403).json({ ok: false, error: "You do not have permission to do this." });
+  };
 }
 
-function requireStaff(req, res, next) {
-  const u = req.session && req.session.user;
-  if (u && (u.role === "admin" || u.role === "staff")) return next();
-  res.status(403).json({ ok: false, error: "Staff privileges required." });
-}
+// Members, Teams and shared dashboard data — every signed-in role.
+const requireStaff = requireRole("webadmin", "admin", "staff");
+// Championships, Sponsors & Partners, Contracts, Announcements — Admin and above.
+const requireAdmin = requireRole("webadmin", "admin");
+// Landing Page category, Users and Activity Logs — the NRX Web Admin only.
+const requireWebAdmin = requireRole("webadmin");
 
 const loginAttempts = new Map();
 function throttleLogin(req, res, next) {
@@ -365,12 +379,13 @@ app.post("/api/login", throttleLogin, ah(async (req, res) => {
     username: fresh.username,
     role: fresh.role,
     displayName: fresh.displayName,
+    primary: !!fresh.primary,
   };
   await logActivity(req, "login", "Signed in to the admin console", fresh.username);
 
   res.json({
     ok: true,
-    user: { username: fresh.username, role: fresh.role, displayName: fresh.displayName },
+    user: { username: fresh.username, role: fresh.role, displayName: fresh.displayName, primary: !!fresh.primary },
   });
 }));
 
@@ -382,12 +397,53 @@ app.post("/api/logout", ah(async (req, res) => {
   });
 }));
 
-app.get("/api/session", (req, res) => {
-  if (req.session && req.session.user) {
-    return res.json({ ok: true, authenticated: true, user: req.session.user });
+app.get("/api/session", ah(async (req, res) => {
+  if (!(req.session && req.session.user)) {
+    return res.json({ ok: true, authenticated: false });
   }
-  res.json({ ok: true, authenticated: false });
-});
+  // Re-sync with the stored account so role/name changes (and migrations)
+  // take effect without forcing the user to sign out.
+  try {
+    const u = (await readUsers()).find((x) => x.id === req.session.user.id);
+    if (u) {
+      req.session.user = {
+        id: u.id,
+        username: u.username,
+        role: u.role,
+        displayName: u.displayName,
+        primary: !!u.primary,
+      };
+    }
+  } catch {}
+  res.json({ ok: true, authenticated: true, user: req.session.user });
+}));
+
+/* ------------------------------------------------------------------ */
+/*  Health check                                                       */
+/*  Pointed at by an external uptime monitor (e.g. UptimeRobot) so the  */
+/*  Render free instance — and the database — never idle long enough to */
+/*  spin down. Always returns 200 so a slow database never reports the  */
+/*  service itself as down.                                            */
+/* ------------------------------------------------------------------ */
+app.get("/api/health", ah(async (req, res) => {
+  let db = "skipped";
+  if (storage.pool) {
+    try {
+      await storage.pool.query("SELECT 1");
+      db = "up";
+    } catch {
+      db = "down";
+    }
+  }
+  res.set("Cache-Control", "no-store");
+  res.json({
+    ok: true,
+    status: "healthy",
+    db,
+    time: new Date().toISOString(),
+    uptime: Math.round(process.uptime()),
+  });
+}));
 
 /* ------------------------------------------------------------------ */
 /*  My account (any signed-in user)                                    */
@@ -425,6 +481,46 @@ app.post("/api/me/password", requireAuth, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Lets any signed-in user customize their own username and display name.
+// The primary NRX Web Admin account stays fixed.
+app.post("/api/me/profile", requireAuth, ah(async (req, res) => {
+  const list = await readUsers();
+  const idx = list.findIndex((x) => x.id === req.session.user.id);
+  if (idx === -1) return res.status(401).json({ ok: false, error: "Account not found." });
+  const target = list[idx];
+
+  if (target.primary) {
+    return res.status(403).json({ ok: false, error: "The NRX Web Admin account's username and display name are fixed." });
+  }
+
+  const body = req.body || {};
+  const name = String(body.username ?? target.username).trim();
+  const disp = String(body.displayName ?? target.displayName ?? "").trim() || name;
+
+  if (!/^[A-Za-z0-9._-]{3,24}$/.test(name)) {
+    return res.status(400).json({ ok: false, error: "Username must be 3-24 characters (letters, numbers, . _ -)." });
+  }
+  if (disp.length > 48) {
+    return res.status(400).json({ ok: false, error: "Display name is too long (max 48 characters)." });
+  }
+  if (list.some((u) => u.id !== target.id && u.username.toLowerCase() === name.toLowerCase())) {
+    return res.status(409).json({ ok: false, error: "Username already exists." });
+  }
+
+  const usernameChanged = target.username !== name;
+  target.username = name;
+  target.displayName = disp;
+  list[idx] = target;
+  await writeUsers(list);
+
+  req.session.user.username = target.username;
+  req.session.user.displayName = target.displayName;
+  if (usernameChanged) await revokeUserSessions(target.id, req.sessionID);
+
+  await logActivity(req, "update", "Updated own profile" + (usernameChanged ? " (username \u2192 " + name + ")" : ""));
+  res.json({ ok: true, user: publicUser(target) });
+}));
+
 /* ------------------------------------------------------------------ */
 /*  Public site data                                                   */
 /* ------------------------------------------------------------------ */
@@ -459,15 +555,16 @@ function singular(n) {
   return n.replace(/s$/, "");
 }
 
-function registerCrud(name, store, requiredFields) {
+function registerCrud(name, store, requiredFields, access) {
   const base = "/api/admin/" + name;
   const entity = singular(name);
+  const guard = access || requireAdmin;
 
-  app.get(base, requireAuth, requireStaff, ah(async (req, res) => {
+  app.get(base, requireAuth, guard, ah(async (req, res) => {
     res.json({ ok: true, items: await store.read() });
   }));
 
-  app.post(base, requireAuth, requireStaff, ah(async (req, res) => {
+  app.post(base, requireAuth, guard, ah(async (req, res) => {
     const body = req.body || {};
     const missing = requiredFields.filter((f) => !String(body[f] ?? "").trim());
     if (missing.length) {
@@ -486,7 +583,7 @@ function registerCrud(name, store, requiredFields) {
     res.status(201).json({ ok: true, item: record });
   }));
 
-  app.put(base + "/:id", requireAuth, requireStaff, ah(async (req, res) => {
+  app.put(base + "/:id", requireAuth, guard, ah(async (req, res) => {
     const list = await store.read();
     const idx = list.findIndex((i) => i.id === req.params.id);
     if (idx === -1) return res.status(404).json({ ok: false, error: "Record not found." });
@@ -506,7 +603,7 @@ function registerCrud(name, store, requiredFields) {
     res.json({ ok: true, item: merged });
   }));
 
-  app.delete(base + "/:id", requireAuth, requireStaff, ah(async (req, res) => {
+  app.delete(base + "/:id", requireAuth, guard, ah(async (req, res) => {
     const list = await store.read();
     const existing = list.find((i) => i.id === req.params.id);
     if (!existing) return res.status(404).json({ ok: false, error: "Record not found." });
@@ -518,16 +615,16 @@ function registerCrud(name, store, requiredFields) {
   }));
 }
 
-registerCrud("members", members, ["ingameName", "fullName", "email", "role", "status"]);
-registerCrud("teams", teams, ["name", "game", "status"]);
-registerCrud("championships", championships, ["name", "game", "team", "placement", "date"]);
-registerCrud("sponsorships", sponsorships, ["name", "type", "tier", "status"]);
-registerCrud("contracts", contracts, ["party", "type", "status"]);
+registerCrud("members", members, ["ingameName", "fullName", "email", "role", "status"], requireStaff);
+registerCrud("teams", teams, ["name", "game", "status"], requireStaff);
+registerCrud("championships", championships, ["name", "game", "team", "placement", "date"], requireAdmin);
+registerCrud("sponsorships", sponsorships, ["name", "type", "tier", "status"], requireAdmin);
+registerCrud("contracts", contracts, ["party", "type", "status"], requireAdmin);
 
-/* Landing page records (editable from the dashboard) */
-registerCrud("games", games, ["name"]);
-registerCrud("matches", matches, ["teamA", "teamB"]);
-registerCrud("admins", publicAdmins, ["name"]);
+/* Landing page records (editable from the dashboard — NRX Web Admin only) */
+registerCrud("games", games, ["name"], requireWebAdmin);
+registerCrud("matches", matches, ["teamA", "teamB"], requireWebAdmin);
+registerCrud("admins", publicAdmins, ["name"], requireWebAdmin);
 
 /* ------------------------------------------------------------------ */
 /*  Member photo upload (base64 -> /uploads)                           */
@@ -565,16 +662,21 @@ app.delete("/api/admin/upload-photo", requireAuth, requireStaff, ah(async (req, 
 /*  Dashboard summary + announcements                                  */
 /* ------------------------------------------------------------------ */
 app.get("/api/admin/summary", requireAuth, requireStaff, ah(async (req, res) => {
+  const role = req.session.user.role;
+  const isStaff = role === "staff";
+  const canRecords = role === "webadmin" || role === "admin";
+
   const [m, t, c, s, ct, list] = await Promise.all([
     members.read(),
     teams.read(),
-    championships.read(),
-    sponsorships.read(),
-    contracts.read(),
-    readUsers(),
+    canRecords ? championships.read() : Promise.resolve([]),
+    canRecords ? sponsorships.read() : Promise.resolve([]),
+    canRecords ? contracts.read() : Promise.resolve([]),
+    role === "webadmin" ? readUsers() : Promise.resolve([]),
   ]);
   res.json({
     ok: true,
+    role,
     summary: {
       members: m.length,
       activeMembers: m.filter((x) => x.status === "Active").length,
@@ -588,16 +690,17 @@ app.get("/api/admin/summary", requireAuth, requireStaff, ah(async (req, res) => 
       users: list.length,
     },
     recentMembers: m.slice(0, 5),
-    recentChampionships: c.slice(0, 4),
+    recentChampionships: isStaff ? [] : c.slice(0, 4),
   });
 }));
 
-app.get("/api/admin/announcements", requireAuth, requireStaff, ah(async (req, res) => {
+// Announcements are managed by Admin and above (Landing Page category excluded).
+app.get("/api/admin/announcements", requireAuth, requireAdmin, ah(async (req, res) => {
   const stats = await siteStats.read();
   res.json({ ok: true, announcements: stats.announcements || [] });
 }));
 
-app.post("/api/admin/announcement", requireAuth, requireStaff, ah(async (req, res) => {
+app.post("/api/admin/announcement", requireAuth, requireAdmin, ah(async (req, res) => {
   const { message } = req.body || {};
   if (!message || !String(message).trim()) {
     return res.status(400).json({ ok: false, error: "Announcement message is required." });
@@ -615,11 +718,11 @@ app.post("/api/admin/announcement", requireAuth, requireStaff, ah(async (req, re
 /* ------------------------------------------------------------------ */
 /*  Landing page text content (siteContent)                            */
 /* ------------------------------------------------------------------ */
-app.get("/api/admin/content", requireAuth, requireStaff, ah(async (req, res) => {
+app.get("/api/admin/content", requireAuth, requireWebAdmin, ah(async (req, res) => {
   res.json({ ok: true, content: await siteContent.read() });
 }));
 
-app.put("/api/admin/content", requireAuth, requireStaff, ah(async (req, res) => {
+app.put("/api/admin/content", requireAuth, requireWebAdmin, ah(async (req, res) => {
   const body = req.body || {};
   const current = await siteContent.read();
 
@@ -693,6 +796,7 @@ function publicUser(u) {
     username: u.username,
     displayName: u.displayName || u.username,
     role: u.role,
+    primary: !!u.primary,
     title: u.title || "",
     photo: u.photo || "",
     createdAt: u.createdAt || "",
@@ -744,11 +848,13 @@ app.get("/api/admins", ah(async (req, res) => {
   res.json({ ok: true, admins });
 }));
 
-app.get("/api/admin/users", requireAuth, requireAdmin, ah(async (req, res) => {
+app.get("/api/admin/users", requireAuth, requireWebAdmin, ah(async (req, res) => {
   res.json({ ok: true, items: (await readUsers()).map(publicUser) });
 }));
 
-app.post("/api/admin/users", requireAuth, requireAdmin, ah(async (req, res) => {
+// Only the seeded NRX Web Admin owns the full-access role, so new accounts
+// may only be created as Admin or Staff.
+app.post("/api/admin/users", requireAuth, requireWebAdmin, ah(async (req, res) => {
   const body = req.body || {};
   const name = String(body.username || "").trim();
   const pass = String(body.password || "");
@@ -779,25 +885,36 @@ app.post("/api/admin/users", requireAuth, requireAdmin, ah(async (req, res) => {
   };
   list.unshift(record);
   await writeUsers(list);
-  await logActivity(req, "create", "user \u201c" + name + "\u201d (" + (role === "admin" ? "Administrator" : "Staff") + ")");
+  await logActivity(req, "create", "user \u201c" + name + "\u201d (" + roleLabel(role) + ")");
   broadcastChange("users");
   res.status(201).json({ ok: true, item: publicUser(record) });
 }));
 
-app.put("/api/admin/users/:id", requireAuth, requireAdmin, ah(async (req, res) => {
+app.put("/api/admin/users/:id", requireAuth, requireWebAdmin, ah(async (req, res) => {
   const list = await readUsers();
   const idx = list.findIndex((u) => u.id === req.params.id);
   if (idx === -1) return res.status(404).json({ ok: false, error: "User not found." });
 
   const body = req.body || {};
   const target = list[idx];
+
+  // The NRX Web Admin account is locked: role, username and display name stay fixed.
+  if (target.primary) {
+    const wantsRole = body.role !== undefined && body.role !== target.role;
+    const wantsName = body.displayName !== undefined &&
+      String(body.displayName || "").trim() !== String(target.displayName || "");
+    if (wantsRole || wantsName) {
+      return res.status(403).json({ ok: false, error: "The NRX Web Admin account's role and name are fixed." });
+    }
+  }
+
   const disp = String(body.displayName ?? target.displayName ?? "").trim() || target.username;
   const role = body.role === "staff" ? "staff" : body.role === "admin" ? "admin" : target.role;
 
-  if (target.role === "admin" && role !== "admin") {
-    const otherAdmins = list.filter((u) => u.role === "admin" && u.id !== target.id);
-    if (!otherAdmins.length) {
-      return res.status(400).json({ ok: false, error: "Cannot demote the last administrator." });
+  if (target.role === "webadmin" && role !== "webadmin") {
+    const otherWebAdmins = list.filter((u) => u.role === "webadmin" && u.id !== target.id);
+    if (!otherWebAdmins.length) {
+      return res.status(400).json({ ok: false, error: "Cannot demote the last NRX Web Admin." });
     }
   }
   const pass = String(body.password || "");
@@ -828,15 +945,18 @@ app.put("/api/admin/users/:id", requireAuth, requireAdmin, ah(async (req, res) =
   res.json({ ok: true, item: publicUser(target) });
 }));
 
-app.delete("/api/admin/users/:id", requireAuth, requireAdmin, ah(async (req, res) => {
+app.delete("/api/admin/users/:id", requireAuth, requireWebAdmin, ah(async (req, res) => {
   const list = await readUsers();
   const target = list.find((u) => u.id === req.params.id);
   if (!target) return res.status(404).json({ ok: false, error: "User not found." });
+  if (target.primary) {
+    return res.status(403).json({ ok: false, error: "The NRX Web Admin account cannot be deleted." });
+  }
   if (req.session.user && req.session.user.id === target.id) {
     return res.status(400).json({ ok: false, error: "You cannot delete your own account." });
   }
-  if (target.role === "admin" && list.filter((u) => u.role === "admin").length <= 1) {
-    return res.status(400).json({ ok: false, error: "Cannot delete the last administrator." });
+  if (target.role === "webadmin" && list.filter((u) => u.role === "webadmin").length <= 1) {
+    return res.status(400).json({ ok: false, error: "Cannot delete the last NRX Web Admin." });
   }
   await writeUsers(list.filter((u) => u.id !== target.id));
   if (target.photo) await removePhoto(target.photo);
@@ -846,9 +966,9 @@ app.delete("/api/admin/users/:id", requireAuth, requireAdmin, ah(async (req, res
 }));
 
 /* ------------------------------------------------------------------ */
-/*  Activity log feed (admin only)                                     */
+/*  Activity log feed (NRX Web Admin only)                             */
 /* ------------------------------------------------------------------ */
-app.get("/api/admin/activity", requireAuth, requireAdmin, ah(async (req, res) => {
+app.get("/api/admin/activity", requireAuth, requireWebAdmin, ah(async (req, res) => {
   res.json({ ok: true, items: await activity.read() });
 }));
 
@@ -896,8 +1016,8 @@ async function seedLandingAdmins() {
   const list = (await readUsers()).map((u, i) => ({
     id: crypto.randomUUID(),
     name: u.displayName || u.username,
-    title: u.title || (u.role === "admin" ? "Administrator" : "Staff"),
-    role: u.role === "admin" ? "Platform Admin" : "Staff",
+    title: u.title || (u.role === "staff" ? "Staff" : "Administrator"),
+    role: u.role === "staff" ? "Staff" : "Platform Admin",
     photo: u.photo || "",
     order: i + 1,
   }));
@@ -905,9 +1025,33 @@ async function seedLandingAdmins() {
   console.log('[storage] seeded "admins" from ' + list.length + " user account(s)");
 }
 
+// Upgrades the original "admin" account to the new role model. The account that
+// matches NRX_ADMIN_USER becomes the primary "NRX Web Admin" (full access).
+async function migrateRoles() {
+  const list = await readUsers();
+  if (!list.length) return;
+  const primaryName = String(ADMIN_USERNAME || "").toLowerCase();
+  let changed = false;
+  for (const u of list) {
+    if (u.username && u.username.toLowerCase() === primaryName) {
+      if (u.role !== "webadmin") { u.role = "webadmin"; changed = true; }
+      if (!u.primary) { u.primary = true; changed = true; }
+    } else if (u.role === "webadmin" && !u.primary) {
+      // Never leave extra full-access roles lying around from the old model.
+      u.role = "admin";
+      changed = true;
+    }
+  }
+  if (changed) {
+    await writeUsers(list);
+    console.log("[storage] migrated user roles to the webadmin/admin/staff model");
+  }
+}
+
 async function boot() {
   await storage.init();
   for (const c of COLLECTIONS) await c.seed();
+  await migrateRoles();
   await seedLandingAdmins();
 
   const list = await users.read();

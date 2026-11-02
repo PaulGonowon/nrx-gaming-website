@@ -22,6 +22,10 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* Ensure the [hidden] attribute beats component display rules (flex, etc.).
+   Without this, role-based hiding of nav items / quick actions does nothing. */
+[hidden] { display: none !important; }
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -625,6 +629,8 @@ tbody tr:hover td { background: rgba(255, 199, 0, 0.045); }
 .acct__row:last-child { border-bottom: 0; }
 .acct__row > span:first-child { color: var(--muted); font-size: 13px; letter-spacing: 0.5px; }
 .acct__row b { font-weight: 600; text-align: right; word-break: break-word; }
+.hint-fixed { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+.field input:disabled, .field select:disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* ---------- Mobile refinements (no overlap on small screens) ---------- */
 @media (max-width: 620px) {

@@ -157,7 +157,7 @@
       fields: [
         { key: "username", label: "Username", type: "text", required: true, placeholder: "coach.ruel" },
         { key: "displayName", label: "Display Name", type: "text", placeholder: "Ruel Bautista" },
-        { key: "role", label: "Role", type: "select", required: true, options: [{ v: "staff", l: "Staff" }, { v: "admin", l: "Administrator" }] },
+        { key: "role", label: "Role", type: "select", required: true, options: [{ v: "staff", l: "Staff" }, { v: "admin", l: "Admin" }] },
         { key: "password", label: "Password", type: "password", required: true, placeholder: "Min 8 characters" },
       ],
     },
@@ -250,19 +250,69 @@
   const dataCache = { members: [], teams: [], championships: [], sponsorships: [], contracts: [], users: [], logs: [], games: [], matches: [], admins: [] };
 
   /* ============ Session guard ============ */
+  // Which sidebar views each role may open.
+  //  webadmin (NRX Web Admin): everything.
+  //  admin: lahat maliban sa Landing Page category, Users at Activity Logs.
+  //  staff: Members at Teams lang.
+  const VIEW_ACCESS = {
+    overview: ["webadmin", "admin", "staff"],
+    members: ["webadmin", "admin", "staff"],
+    teams: ["webadmin", "admin", "staff"],
+    championships: ["webadmin", "admin"],
+    sponsorships: ["webadmin", "admin"],
+    contracts: ["webadmin", "admin"],
+    content: ["webadmin"],
+    games: ["webadmin"],
+    matches: ["webadmin"],
+    admins: ["webadmin"],
+    announcements: ["webadmin", "admin"],
+    users: ["webadmin"],
+    logs: ["webadmin"],
+    settings: ["webadmin", "admin", "staff"],
+  };
+  function canView(view) {
+    const roles = VIEW_ACCESS[view];
+    return !roles || (user && roles.includes(user.role));
+  }
+
   async function guard() {
     try {
       const r = await fetch("/api/session");
       const d = await r.json();
       if (!d.authenticated) { window.location.href = "/"; return false; }
       user = d.user;
-      $("#userName").textContent = user.displayName || user.username;
-      $("#userAvatar").textContent = (user.displayName || user.username).charAt(0).toUpperCase();
-      if (user.role !== "admin") {
-        $$('.nav-item[data-view="users"], .nav-item[data-view="logs"]').forEach((b) => (b.hidden = true));
-      }
+      applyUserUI();
+      applyNavAccess();
       return true;
     } catch { window.location.href = "/"; return false; }
+  }
+
+  function applyUserUI() {
+    const label = user.displayName || user.username;
+    $("#userName").textContent = label;
+    $("#userAvatar").textContent = label.charAt(0).toUpperCase();
+    const roleEl = $(".topbar__role");
+    if (roleEl) roleEl.textContent = roleLabel(user.role);
+  }
+
+  // Hides sidebar items (and now-empty group headings) the role cannot open.
+  function applyNavAccess() {
+    $$(".nav-item").forEach((b) => { b.hidden = !canView(b.dataset.view); });
+    $$(".sidebar__group").forEach((group) => {
+      let node = group.nextElementSibling;
+      let anyVisible = false;
+      while (node && !node.classList.contains("sidebar__group")) {
+        if (node.classList.contains("nav-item") && !node.hidden) anyVisible = true;
+        node = node.nextElementSibling;
+      }
+      group.hidden = !anyVisible;
+    });
+    $$("[data-quick]").forEach((b) => { b.hidden = !canView(b.dataset.quick); });
+    const titlesHead = $("#recentTitlesHead");
+    const titlesList = $("#recentTitles");
+    const showTitles = canView("championships");
+    if (titlesHead) titlesHead.hidden = !showTitles;
+    if (titlesList) titlesList.hidden = !showTitles;
   }
 
   /* ============ Toast ============ */
@@ -277,6 +327,7 @@
 
   /* ============ Navigation ============ */
   function switchView(view) {
+    if (!canView(view)) view = "overview";
     currentView = view;
     $$(".nav-item").forEach((b) => b.classList.toggle("is-active", b.dataset.view === view));
     $$(".view").forEach((v) => {
@@ -340,13 +391,14 @@
       $('[data-count="contracts"]').textContent = s.contracts;
       if ($('[data-count="users"]')) $('[data-count="users"]').textContent = s.users;
 
-      // stat cards
-      $("#statsGrid").innerHTML = [
-        { ico: "◉", color: "cyan", val: s.members, lbl: "Total Members", sub: s.activeMembers + " active" },
-        { ico: "▣", color: "violet", val: s.teams, lbl: "Active Teams" },
-        { ico: "♛", color: "magenta", val: s.championships, lbl: "Tournaments", sub: s.titles + " titles won" },
-        { ico: "✦", color: "green", val: s.sponsorships, lbl: "Sponsors", sub: s.activeSponsors + " active" },
-      ].map((x) => `
+      // stat cards — filtered to what this role may see
+      const cards = [
+        { view: "members", ico: "◉", color: "cyan", val: s.members, lbl: "Total Members", sub: s.activeMembers + " active" },
+        { view: "teams", ico: "▣", color: "violet", val: s.teams, lbl: "Active Teams" },
+        { view: "championships", ico: "♛", color: "magenta", val: s.championships, lbl: "Tournaments", sub: s.titles + " titles won" },
+        { view: "sponsorships", ico: "✦", color: "green", val: s.sponsorships, lbl: "Sponsors", sub: s.activeSponsors + " active" },
+      ].filter((x) => canView(x.view));
+      $("#statsGrid").innerHTML = cards.map((x) => `
         <div class="stat">
           <div class="stat__ico ${x.color}">${x.ico}</div>
           <div class="stat__val">${x.val}</div>
@@ -362,12 +414,14 @@
         { key: "status", label: "Status", badge: true },
       ]);
 
-      // recent titles
-      $("#recentTitles").innerHTML = d.recentChampionships.map((c) => `
-        <li>
-          <span class="activity__medal">♛</span>
-          <span class="activity__txt"><b>${esc(c.name)}</b><span>${esc(c.team)} · ${esc(c.placement)} · ${esc(c.date || "")}</span></span>
-        </li>`).join("") || `<li style="justify-content:center;color:var(--muted)">No championships yet.</li>`;
+      // recent titles (Admin and above only)
+      if (canView("championships")) {
+        $("#recentTitles").innerHTML = d.recentChampionships.map((c) => `
+          <li>
+            <span class="activity__medal">♛</span>
+            <span class="activity__txt"><b>${esc(c.name)}</b><span>${esc(c.team)} · ${esc(c.placement)} · ${esc(c.date || "")}</span></span>
+          </li>`).join("") || `<li style="justify-content:center;color:var(--muted)">No championships yet.</li>`;
+      }
     } catch (e) { console.error(e); }
   }
 
@@ -384,8 +438,14 @@
     return esc(row[col.key] || "—");
   }
 
+  const ROLE_LABELS = { webadmin: "NRX Web Admin", admin: "Admin", staff: "Staff" };
+  function roleLabel(role) {
+    return ROLE_LABELS[role] || role || "—";
+  }
+
   function userRoleBadge(role) {
-    if (role === "admin") return `<span class="badge badge--violet">Administrator</span>`;
+    if (role === "webadmin") return `<span class="badge badge--magenta">NRX Web Admin</span>`;
+    if (role === "admin") return `<span class="badge badge--violet">Admin</span>`;
     if (role === "staff") return `<span class="badge badge--cyan">Staff</span>`;
     return esc(role || "—");
   }
@@ -447,10 +507,12 @@
         ${schema.columns.map((c) => `<td>${cellHTML(c, r)}</td>`).join("")}
         <td style="text-align:right">
           <div class="cell-actions" style="justify-content:flex-end">
-            <button class="act act--edit" data-edit="${r.id}">Edit</button>
-            ${type === "users" && user && r.id === user.id
-              ? `<span class="act" style="opacity:.45;cursor:not-allowed" title="You cannot delete your own account">Delete</span>`
-              : `<button class="act act--del" data-del="${r.id}">Delete</button>`}
+            ${type === "users" && r.primary
+              ? `<span class="act" style="opacity:.45;cursor:not-allowed" title="The NRX Web Admin account is fixed">&#128274; Locked</span>`
+              : `<button class="act act--edit" data-edit="${r.id}">Edit</button>
+                 ${type === "users" && user && r.id === user.id
+                   ? `<span class="act" style="opacity:.45;cursor:not-allowed" title="You cannot delete your own account">Delete</span>`
+                   : `<button class="act act--del" data-del="${r.id}">Delete</button>`}`}
           </div>
         </td>
       </tr>`).join("")}
@@ -854,6 +916,25 @@
         </div>
 
         <div class="panel">
+          <div class="panel__head"><h3>Personal Details</h3></div>
+          ${me.primary
+            ? `<p class="hint-fixed">Ang NRX Web Admin account ay fixed \u2014 hindi mababago ang username at display name.</p>`
+            : `<p class="hint-fixed">Pwede mong palitan ang sarili mong username at display name.</p>`}
+          <form id="profileForm" novalidate>
+            <div class="form-grid">
+              <label class="field fw"><span class="field__label">Username *</span>
+                <input type="text" name="username" value="${esc(me.username)}" minlength="3" maxlength="24" autocapitalize="none" autocomplete="username" ${me.primary ? "disabled" : ""} /></label>
+              <label class="field fw"><span class="field__label">Display Name *</span>
+                <input type="text" name="displayName" value="${esc(me.displayName)}" maxlength="48" ${me.primary ? "disabled" : ""} /></label>
+            </div>
+            <div class="form-error" id="profileError"></div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn--primary" id="profileSubmit" ${me.primary ? "disabled" : ""}>Save Changes</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="panel">
           <div class="panel__head"><h3>Change Password</h3></div>
           <form id="pwForm" novalidate>
             <div class="form-grid">
@@ -898,6 +979,40 @@
         const d = await r.json();
         if (!d.ok) { fail(d.error || "Failed to update password."); return; }
         toast("Password updated.", "success");
+        loadSettings();
+      } catch { fail("Network error. Could not reach the server."); }
+      finally { btn.disabled = false; }
+    });
+
+    const profileForm = $("#profileForm");
+    if (profileForm) profileForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const username = String(fd.get("username") || "").trim();
+      const displayName = String(fd.get("displayName") || "").trim();
+      const err = $("#profileError");
+      err.classList.remove("is-show");
+      const fail = (m) => { err.textContent = m; err.classList.add("is-show"); };
+
+      if (!/^[A-Za-z0-9._-]{3,24}$/.test(username)) {
+        return fail("Username must be 3-24 characters (letters, numbers, . _ -).");
+      }
+      if (!displayName) return fail("Display name is required.");
+
+      const btn = $("#profileSubmit");
+      btn.disabled = true;
+      try {
+        const r = await fetch("/api/me/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, displayName }),
+        });
+        const d = await r.json();
+        if (!d.ok) { fail(d.error || "Failed to update profile."); return; }
+        user.username = d.user.username;
+        user.displayName = d.user.displayName;
+        applyUserUI();
+        toast("Personal details updated.", "success");
         loadSettings();
       } catch { fail("Network error. Could not reach the server."); }
       finally { btn.disabled = false; }

@@ -410,6 +410,15 @@ body::before {
 .game-card > * { position: relative; z-index: 1; }
 .game-card__icon { font-size: 40px; margin-bottom: 16px; filter: drop-shadow(0 0 18px rgba(255, 199, 0, 0.5)); transition: transform 0.5s var(--ease); }
 .game-card:hover .game-card__icon { transform: scale(1.14) rotate(-6deg); }
+.game-card__logo {
+  height: 200px; margin-bottom: 18px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 16px; overflow: hidden;
+  background: radial-gradient(circle at 50% 45%, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.42));
+  border: 1px solid var(--line);
+}
+.game-card__logo img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; transition: transform 0.5s var(--ease); }
+.game-card:hover .game-card__logo img { transform: scale(1.05); }
 .game-card h3 { font-family: var(--head); font-size: 22px; margin-bottom: 10px; }
 .game-card p { color: var(--muted); font-size: 15px; }
 .game-card__tag {
@@ -725,6 +734,7 @@ body::before {
   .stat { padding: 22px 14px; }
   .section { padding: 62px 18px; }
   .game-card, .player, .news-card { padding: 24px 20px; }
+  .game-card__logo { height: 160px; }
   .match { padding: 18px 16px; gap: 10px; }
   .match__teams { gap: 10px; }
   .match__team { font-size: 16px; }

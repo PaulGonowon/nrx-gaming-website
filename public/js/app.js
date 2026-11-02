@@ -207,6 +207,39 @@
     }
   }
 
+  /* ---------------- Realtime updates ---------------- */
+  let liveSource = null;
+  let refreshTimer = null;
+
+  function scheduleRefresh() {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      loadRoster();
+      loadNews();
+    }, 300);
+  }
+
+  function startLive() {
+    if (liveSource || !window.EventSource) return;
+    liveSource = new EventSource("/api/events");
+    liveSource.addEventListener("change", scheduleRefresh);
+  }
+
+  function stopLive() {
+    if (!liveSource) return;
+    liveSource.close();
+    liveSource = null;
+  }
+
+  // Tipid sa resources kapag nakatago ang tab; refresh pagbalik ng focus.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopLive();
+    else {
+      startLive();
+      scheduleRefresh();
+    }
+  });
+
   /* ---------------- Modal ---------------- */
   const modal = $("#modal");
   const signInBtn = $("#signInBtn");
@@ -295,4 +328,5 @@
 
   loadRoster();
   loadNews();
+  startLive();
 })();

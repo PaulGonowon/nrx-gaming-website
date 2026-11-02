@@ -223,6 +223,51 @@ function throttleLogin(req, res, next) {
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 /* ------------------------------------------------------------------ */
+/*  Realtime updates (Server-Sent Events)                              */
+/* ------------------------------------------------------------------ */
+const eventClients = new Set();
+
+// Tells every connected browser which resource just changed so open
+// pages can re-fetch it without a manual refresh.
+function broadcastChange(resource) {
+  if (!eventClients.size) return;
+  const payload = "event: change\ndata: " + JSON.stringify({ resource, ts: Date.now() }) + "\n\n";
+  for (const client of eventClients) {
+    try {
+      client.write(payload);
+    } catch {
+      eventClients.delete(client);
+    }
+  }
+}
+
+app.get("/api/events", (req, res) => {
+  res.set({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  res.flushHeaders();
+  res.write("retry: 3000\n\n");
+  eventClients.add(res);
+
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(": ping\n\n");
+    } catch {
+      clearInterval(heartbeat);
+      eventClients.delete(res);
+    }
+  }, 25000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    eventClients.delete(res);
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /*  Auth routes                                                        */
 /* ------------------------------------------------------------------ */
 app.post("/api/login", throttleLogin, ah(async (req, res) => {
@@ -378,6 +423,7 @@ function registerCrud(name, store, requiredFields) {
     list.unshift(record);
     await store.write(list);
     await logActivity(req, "create", entity + " \u201c" + labelOf(record, requiredFields) + "\u201d");
+    broadcastChange(name);
     res.status(201).json({ ok: true, item: record });
   }));
 
@@ -397,6 +443,7 @@ function registerCrud(name, store, requiredFields) {
     await store.write(list);
     if (oldPhoto && oldPhoto !== merged.photo) await removePhoto(oldPhoto);
     await logActivity(req, "update", entity + " \u201c" + labelOf(merged, requiredFields) + "\u201d");
+    broadcastChange(name);
     res.json({ ok: true, item: merged });
   }));
 
@@ -407,6 +454,7 @@ function registerCrud(name, store, requiredFields) {
     await store.write(list.filter((i) => i.id !== req.params.id));
     if (existing.photo) await removePhoto(existing.photo);
     await logActivity(req, "delete", entity + " \u201c" + labelOf(existing, requiredFields) + "\u201d");
+    broadcastChange(name);
     res.json({ ok: true });
   }));
 }
@@ -438,12 +486,14 @@ app.post("/api/admin/upload-photo", requireAuth, requireStaff, ah(async (req, re
   const mime = "image/" + (ext === "jpg" ? "jpeg" : ext);
   await storage.putUpload(name, mime, buffer);
   await logActivity(req, "upload", "Photo uploaded (" + (buffer.length / 1024).toFixed(0) + "KB)");
+  broadcastChange("members");
   res.status(201).json({ ok: true, url: "/uploads/" + name });
 }));
 
 app.delete("/api/admin/upload-photo", requireAuth, requireStaff, ah(async (req, res) => {
   const url = (req.body || {}).url;
   await removePhoto(String(url || ""));
+  broadcastChange("members");
   res.json({ ok: true });
 }));
 
@@ -493,6 +543,8 @@ app.post("/api/admin/announcement", requireAuth, requireStaff, ah(async (req, re
   const announcements = [msg, ...(stats.announcements || [])].slice(0, 6);
   await siteStats.write({ ...stats, announcements });
   await logActivity(req, "announce", "Published: " + msg.slice(0, 140));
+  broadcastChange("announcements");
+  broadcastChange("stats");
   res.json({ ok: true, announcements });
 }));
 
@@ -545,6 +597,7 @@ app.post("/api/admin/users", requireAuth, requireAdmin, ah(async (req, res) => {
   list.unshift(record);
   await writeUsers(list);
   await logActivity(req, "create", "user \u201c" + name + "\u201d (" + (role === "admin" ? "Administrator" : "Staff") + ")");
+  broadcastChange("users");
   res.status(201).json({ ok: true, item: publicUser(record) });
 }));
 
@@ -584,6 +637,7 @@ app.put("/api/admin/users/:id", requireAuth, requireAdmin, ah(async (req, res) =
     await revokeUserSessions(target.id, keepSid);
   }
   await logActivity(req, "update", "user \u201c" + target.username + "\u201d" + (pass ? " (password reset)" : ""));
+  broadcastChange("users");
   res.json({ ok: true, item: publicUser(target) });
 }));
 
@@ -599,6 +653,7 @@ app.delete("/api/admin/users/:id", requireAuth, requireAdmin, ah(async (req, res
   }
   await writeUsers(list.filter((u) => u.id !== target.id));
   await logActivity(req, "delete", "user \u201c" + target.username + "\u201d");
+  broadcastChange("users");
   res.json({ ok: true });
 }));
 

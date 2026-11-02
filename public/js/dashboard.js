@@ -829,6 +829,103 @@
     });
   }
 
+  /* ============ Realtime updates (SSE) ============ */
+  let liveSource = null;
+  let refreshTimer = null;
+  let deferTimer = null;
+  let pendingRefresh = false;
+
+  // Huwag mag-refresh habang nagta-type ang user (modal o inline form), para
+  // hindi mabura ang sinulat. Ipagpaliban at isagawa pagkatapos.
+  function shouldDeferRefresh() {
+    const rec = $("#recordModal");
+    const conf = $("#confirmModal");
+    if ((rec && rec.classList.contains("is-open")) || (conf && conf.classList.contains("is-open"))) return true;
+    const el = document.activeElement;
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  }
+
+  function refreshCurrentView() {
+    if (currentView === "overview") loadOverview();
+    else if (SCHEMAS[currentView]) loadRecordView(currentView);
+    else if (currentView === "announcements") loadAnnouncements();
+    else if (currentView === "logs") loadLogsView();
+    else if (currentView === "settings") loadSettings();
+  }
+
+  function refreshAll() {
+    loadOverview();
+    refreshCurrentView();
+  }
+
+  function checkPending() {
+    if (!pendingRefresh) {
+      clearInterval(deferTimer);
+      deferTimer = null;
+      return;
+    }
+    if (shouldDeferRefresh()) return;
+    pendingRefresh = false;
+    clearInterval(deferTimer);
+    deferTimer = null;
+    refreshAll();
+  }
+
+  function scheduleRefresh() {
+    if (shouldDeferRefresh()) {
+      pendingRefresh = true;
+      if (!deferTimer) deferTimer = setInterval(checkPending, 1000);
+      return;
+    }
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(refreshAll, 300);
+  }
+
+  function pulseLive() {
+    const dot = $("#liveDot");
+    if (!dot) return;
+    dot.classList.remove("is-pulse");
+    void dot.offsetWidth;
+    dot.classList.add("is-pulse");
+  }
+
+  function setLive(on) {
+    const dot = $("#liveDot");
+    if (!dot) return;
+    dot.classList.toggle("is-offline", !on);
+    dot.title = on ? "Live updates: naka-connect" : "Live updates: offline, nagre-reconnect...";
+  }
+
+  function startLive() {
+    if (liveSource || !window.EventSource) return;
+    liveSource = new EventSource("/api/events");
+    liveSource.addEventListener("open", () => setLive(true));
+    liveSource.addEventListener("error", () => setLive(false));
+    liveSource.addEventListener("change", () => {
+      pulseLive();
+      scheduleRefresh();
+    });
+  }
+
+  function stopLive() {
+    if (!liveSource) return;
+    liveSource.close();
+    liveSource = null;
+    setLive(false);
+  }
+
+  // I-pause kapag nakatago ang tab (tipid sa Render instance-hours), tapos
+  // i-refresh pagbalik ng focus.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopLive();
+    else {
+      startLive();
+      scheduleRefresh();
+    }
+  });
+
   /* ============ Logout ============ */
   $("#logoutBtn").addEventListener("click", async () => {
     await fetch("/api/logout", { method: "POST" });
@@ -847,6 +944,13 @@
 
   (async () => {
     const ok = await guard();
-    if (ok) switchView("overview");
+    if (ok) {
+      switchView("overview");
+      startLive();
+      // Safety net kung naka-block ang SSE (hal. corporate proxy).
+      setInterval(() => {
+        if (!document.hidden) scheduleRefresh();
+      }, 60000);
+    }
   })();
 })();

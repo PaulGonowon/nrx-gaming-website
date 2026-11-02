@@ -9,6 +9,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: DATABASE_URL
+        sync: false
       - key: NRX_SESSION_SECRET
         generateValue: true
       - key: NRX_ADMIN_USER

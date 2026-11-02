@@ -1,9 +1,11 @@
+require("dotenv").config({ quiet: true });
+
 const path = require("path");
-const fs = require("fs");
 const crypto = require("crypto");
 const express = require("express");
 const session = require("express-session");
 const bcrypt = require("bcryptjs");
+const storage = require("./storage");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,49 +13,30 @@ const PORT = process.env.PORT || 3000;
 // Behind Render's reverse proxy so req.ip / req.secure are correct
 app.set("trust proxy", 1);
 
-const DATA_DIR = path.join(__dirname, "data");
-const USERS_FILE = path.join(DATA_DIR, "users.json");
-const UPLOADS_DIR = path.join(__dirname, "public", "uploads");
-
 const ADMIN_USERNAME = process.env.NRX_ADMIN_USER || "admin";
 const ADMIN_PASSWORD = process.env.NRX_ADMIN_PASS || "NRX@Admin2024";
 
 /* ------------------------------------------------------------------ */
 /*  JSON store helpers                                                 */
 /* ------------------------------------------------------------------ */
-function ensureDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
-
 const PHOTO_RE = /^data:image\/(png|jpe?g|webp|gif);base64,([A-Za-z0-9+/=\r\n]+)$/;
 
-function removePhoto(url) {
+async function removePhoto(url) {
   if (typeof url !== "string" || !url.startsWith("/uploads/")) return;
-  try {
-    fs.unlinkSync(path.join(UPLOADS_DIR, path.basename(url)));
-  } catch {}
+  await storage.deleteUpload(url);
 }
 
+// Reads/writes through storage: Postgres when DATABASE_URL is set, local JSON otherwise.
 function collection(name, seed) {
-  const file = path.join(DATA_DIR, name + ".json");
-  if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify(seed, null, 2));
   return {
-    file,
-    read() {
-      try {
-        return JSON.parse(fs.readFileSync(file, "utf8"));
-      } catch {
-        return [];
-      }
+    seed: () => storage.seedDoc(name, seed),
+    async read() {
+      const value = await storage.readDoc(name);
+      return value === undefined ? seed : value;
     },
-    write(data) {
-      fs.writeFileSync(file, JSON.stringify(data, null, 2));
-    },
+    write: (data) => storage.writeDoc(name, data),
   };
 }
-
-ensureDir();
 
 /* ------------------------------------------------------------------ */
 /*  Users / admin account                                              */
@@ -69,16 +52,11 @@ const users = collection("users", [
   },
 ]);
 
-if (fs.existsSync(USERS_FILE) && users.read().length && !users.read()[0].password.startsWith("$2")) {
-  const fixed = users.read().map((u) => ({ ...u, password: bcrypt.hashSync(u.password, 10) }));
-  users.write(fixed);
-}
-
 function readUsers() {
   return users.read();
 }
 function writeUsers(list) {
-  users.write(list);
+  return users.write(list);
 }
 
 /* ------------------------------------------------------------------ */
@@ -88,23 +66,27 @@ const activity = collection("activity", []);
 
 function logActivity(req, action, detail, userOverride) {
   const s = req.session && req.session.user;
-  const list = activity.read();
-  list.unshift({
-    id: crypto.randomUUID(),
-    ts: new Date().toISOString(),
-    user: userOverride || (s && s.username) || "guest",
-    role: (s && s.role) || "",
-    ip: req.ip || "",
-    action,
-    detail: detail || "",
-  });
-  activity.write(list.slice(0, 500));
+  return activity
+    .read()
+    .then((list) => {
+      list.unshift({
+        id: crypto.randomUUID(),
+        ts: new Date().toISOString(),
+        user: userOverride || (s && s.username) || "guest",
+        role: (s && s.role) || "",
+        ip: req.ip || "",
+        action,
+        detail: detail || "",
+      });
+      return activity.write(list.slice(0, 500));
+    })
+    .catch((err) => console.error("[activity] write failed:", err.message));
 }
 
 /* ------------------------------------------------------------------ */
 /*  Site data (public roster / stats)                                  */
 /* ------------------------------------------------------------------ */
-const siteStats = {
+const siteStats = collection("siteStats", {
   wins: 128,
   tournaments: 47,
   members: 1320,
@@ -114,7 +96,7 @@ const siteStats = {
     "New Valorant roster unveiled — meet NRX.Vyper and NRX.Orbit.",
     "Merch drop: NRX x Voidline limited edition jersey is live.",
   ],
-};
+});
 
 /* ------------------------------------------------------------------ */
 /*  Editable collections (CRUD)                                        */
@@ -204,35 +186,39 @@ function throttleLogin(req, res, next) {
   next();
 }
 
+// Wraps async handlers so rejections reach Express' error handler instead of hanging.
+const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 /* ------------------------------------------------------------------ */
 /*  Auth routes                                                        */
 /* ------------------------------------------------------------------ */
-app.post("/api/login", throttleLogin, async (req, res) => {
+app.post("/api/login", throttleLogin, ah(async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ ok: false, error: "Username and password are required." });
   }
 
   const attempted = String(username).trim();
-  const user = readUsers().find(
+  const allUsers = await readUsers();
+  const user = allUsers.find(
     (u) => u.username.toLowerCase() === attempted.toLowerCase()
   );
   const genericError = { ok: false, error: "Invalid username or password." };
   if (!user) {
-    logActivity(req, "login", "Failed sign-in attempt", attempted || "unknown");
+    await logActivity(req, "login", "Failed sign-in attempt", attempted || "unknown");
     return res.status(401).json(genericError);
   }
 
   const valid = await bcrypt.compare(String(password), user.password);
   if (!valid) {
-    logActivity(req, "login", "Failed sign-in attempt", user.username);
+    await logActivity(req, "login", "Failed sign-in attempt", user.username);
     return res.status(401).json(genericError);
   }
 
-  const list = readUsers();
+  const list = await readUsers();
   const fresh = list.find((u) => u.id === user.id) || user;
   fresh.lastLogin = new Date().toISOString();
-  writeUsers(list);
+  await writeUsers(list);
 
   req.session.user = {
     id: fresh.id,
@@ -240,21 +226,21 @@ app.post("/api/login", throttleLogin, async (req, res) => {
     role: fresh.role,
     displayName: fresh.displayName,
   };
-  logActivity(req, "login", "Signed in to the admin console", fresh.username);
+  await logActivity(req, "login", "Signed in to the admin console", fresh.username);
 
   res.json({
     ok: true,
     user: { username: fresh.username, role: fresh.role, displayName: fresh.displayName },
   });
-});
+}));
 
-app.post("/api/logout", (req, res) => {
-  logActivity(req, "logout", "Signed out");
+app.post("/api/logout", ah(async (req, res) => {
+  await logActivity(req, "logout", "Signed out");
   req.session.destroy(() => {
     res.clearCookie("nrx.sid");
     res.json({ ok: true });
   });
-});
+}));
 
 app.get("/api/session", (req, res) => {
   if (req.session && req.session.user) {
@@ -266,15 +252,15 @@ app.get("/api/session", (req, res) => {
 /* ------------------------------------------------------------------ */
 /*  My account (any signed-in user)                                    */
 /* ------------------------------------------------------------------ */
-app.get("/api/me", requireAuth, (req, res) => {
-  const u = readUsers().find((x) => x.id === req.session.user.id);
+app.get("/api/me", requireAuth, ah(async (req, res) => {
+  const u = (await readUsers()).find((x) => x.id === req.session.user.id);
   if (!u) return res.status(401).json({ ok: false, error: "Account not found." });
   res.json({ ok: true, user: publicUser(u) });
-});
+}));
 
-app.post("/api/me/password", requireAuth, async (req, res) => {
+app.post("/api/me/password", requireAuth, ah(async (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
-  const u = readUsers().find((x) => x.id === req.session.user.id);
+  const u = (await readUsers()).find((x) => x.id === req.session.user.id);
   if (!u) return res.status(401).json({ ok: false, error: "Account not found." });
 
   const valid = await bcrypt.compare(String(currentPassword || ""), u.password);
@@ -289,22 +275,21 @@ app.post("/api/me/password", requireAuth, async (req, res) => {
     return res.status(400).json({ ok: false, error: "New password must be different from the current one." });
   }
 
-  const list = readUsers();
+  const list = await readUsers();
   const idx = list.findIndex((x) => x.id === u.id);
   list[idx].password = bcrypt.hashSync(pass, 10);
   list[idx].passwordChangedAt = new Date().toISOString();
-  writeUsers(list);
-  logActivity(req, "password", "Changed own account password");
+  await writeUsers(list);
+  await logActivity(req, "password", "Changed own account password");
   res.json({ ok: true });
-});
+}));
 
 /* ------------------------------------------------------------------ */
 /*  Public site data                                                   */
 /* ------------------------------------------------------------------ */
 const ROSTER_ICONS = ["🔥", "🎯", "⚔️", "🌌", "🌊", "🛰️"];
-app.get("/api/roster", (req, res) => {
-  const players = members
-    .read()
+app.get("/api/roster", ah(async (req, res) => {
+  const players = (await members.read())
     .filter((m) => m.role === "Player")
     .slice(0, 6)
     .map((m, i) => ({
@@ -316,11 +301,11 @@ app.get("/api/roster", (req, res) => {
       wins: 150 + i * 41,
     }));
   res.json({ ok: true, players });
-});
+}));
 
-app.get("/api/stats", (req, res) => {
-  res.json({ ok: true, stats: siteStats });
-});
+app.get("/api/stats", ah(async (req, res) => {
+  res.json({ ok: true, stats: await siteStats.read() });
+}));
 
 /* ------------------------------------------------------------------ */
 /*  Generic CRUD factory for admin records                             */
@@ -337,11 +322,11 @@ function registerCrud(name, store, requiredFields) {
   const base = "/api/admin/" + name;
   const entity = singular(name);
 
-  app.get(base, requireAuth, requireStaff, (req, res) => {
-    res.json({ ok: true, items: store.read() });
-  });
+  app.get(base, requireAuth, requireStaff, ah(async (req, res) => {
+    res.json({ ok: true, items: await store.read() });
+  }));
 
-  app.post(base, requireAuth, requireStaff, (req, res) => {
+  app.post(base, requireAuth, requireStaff, ah(async (req, res) => {
     const body = req.body || {};
     const missing = requiredFields.filter((f) => !String(body[f] ?? "").trim());
     if (missing.length) {
@@ -352,15 +337,15 @@ function registerCrud(name, store, requiredFields) {
       if (key === "id") continue;
       record[key] = body[key];
     }
-    const list = store.read();
+    const list = await store.read();
     list.unshift(record);
-    store.write(list);
-    logActivity(req, "create", entity + " \u201c" + labelOf(record, requiredFields) + "\u201d");
+    await store.write(list);
+    await logActivity(req, "create", entity + " \u201c" + labelOf(record, requiredFields) + "\u201d");
     res.status(201).json({ ok: true, item: record });
-  });
+  }));
 
-  app.put(base + "/:id", requireAuth, requireStaff, (req, res) => {
-    const list = store.read();
+  app.put(base + "/:id", requireAuth, requireStaff, ah(async (req, res) => {
+    const list = await store.read();
     const idx = list.findIndex((i) => i.id === req.params.id);
     if (idx === -1) return res.status(404).json({ ok: false, error: "Record not found." });
 
@@ -372,21 +357,21 @@ function registerCrud(name, store, requiredFields) {
       return res.status(400).json({ ok: false, error: "Missing fields: " + missing.join(", ") });
     }
     list[idx] = merged;
-    store.write(list);
-    if (oldPhoto && oldPhoto !== merged.photo) removePhoto(oldPhoto);
-    logActivity(req, "update", entity + " \u201c" + labelOf(merged, requiredFields) + "\u201d");
+    await store.write(list);
+    if (oldPhoto && oldPhoto !== merged.photo) await removePhoto(oldPhoto);
+    await logActivity(req, "update", entity + " \u201c" + labelOf(merged, requiredFields) + "\u201d");
     res.json({ ok: true, item: merged });
-  });
+  }));
 
-  app.delete(base + "/:id", requireAuth, requireStaff, (req, res) => {
-    const list = store.read();
+  app.delete(base + "/:id", requireAuth, requireStaff, ah(async (req, res) => {
+    const list = await store.read();
     const existing = list.find((i) => i.id === req.params.id);
     if (!existing) return res.status(404).json({ ok: false, error: "Record not found." });
-    store.write(list.filter((i) => i.id !== req.params.id));
-    if (existing.photo) removePhoto(existing.photo);
-    logActivity(req, "delete", entity + " \u201c" + labelOf(existing, requiredFields) + "\u201d");
+    await store.write(list.filter((i) => i.id !== req.params.id));
+    if (existing.photo) await removePhoto(existing.photo);
+    await logActivity(req, "delete", entity + " \u201c" + labelOf(existing, requiredFields) + "\u201d");
     res.json({ ok: true });
-  });
+  }));
 }
 
 registerCrud("members", members, ["ingameName", "fullName", "email", "role", "status"]);
@@ -398,7 +383,7 @@ registerCrud("contracts", contracts, ["party", "type", "status"]);
 /* ------------------------------------------------------------------ */
 /*  Member photo upload (base64 -> /uploads)                           */
 /* ------------------------------------------------------------------ */
-app.post("/api/admin/upload-photo", requireAuth, requireStaff, (req, res) => {
+app.post("/api/admin/upload-photo", requireAuth, requireStaff, ah(async (req, res) => {
   const { dataUrl } = req.body || {};
   const match = PHOTO_RE.exec(String(dataUrl || ""));
   if (!match) {
@@ -413,56 +398,66 @@ app.post("/api/admin/upload-photo", requireAuth, requireStaff, (req, res) => {
     return res.status(413).json({ ok: false, error: "Image is too large. Maximum 5MB." });
   }
   const name = crypto.randomUUID() + "." + ext;
-  fs.writeFileSync(path.join(UPLOADS_DIR, name), buffer);
-  logActivity(req, "upload", "Photo uploaded (" + (buffer.length / 1024).toFixed(0) + "KB)");
+  const mime = "image/" + (ext === "jpg" ? "jpeg" : ext);
+  await storage.putUpload(name, mime, buffer);
+  await logActivity(req, "upload", "Photo uploaded (" + (buffer.length / 1024).toFixed(0) + "KB)");
   res.status(201).json({ ok: true, url: "/uploads/" + name });
-});
+}));
 
-app.delete("/api/admin/upload-photo", requireAuth, requireStaff, (req, res) => {
+app.delete("/api/admin/upload-photo", requireAuth, requireStaff, ah(async (req, res) => {
   const url = (req.body || {}).url;
-  removePhoto(String(url || ""));
+  await removePhoto(String(url || ""));
   res.json({ ok: true });
-});
+}));
 
 /* ------------------------------------------------------------------ */
 /*  Dashboard summary + announcements                                  */
 /* ------------------------------------------------------------------ */
-app.get("/api/admin/summary", requireAuth, requireStaff, (req, res) => {
-  const m = members.read();
+app.get("/api/admin/summary", requireAuth, requireStaff, ah(async (req, res) => {
+  const [m, t, c, s, ct, list] = await Promise.all([
+    members.read(),
+    teams.read(),
+    championships.read(),
+    sponsorships.read(),
+    contracts.read(),
+    readUsers(),
+  ]);
   res.json({
     ok: true,
     summary: {
       members: m.length,
       activeMembers: m.filter((x) => x.status === "Active").length,
-      teams: teams.read().length,
-      championships: championships.read().length,
-      titles: championships.read().filter((c) => c.status === "Champion").length,
-      sponsorships: sponsorships.read().length,
-      activeSponsors: sponsorships.read().filter((s) => s.status === "Active").length,
-      contracts: contracts.read().length,
-      activeContracts: contracts.read().filter((c) => c.status === "Active").length,
-      users: readUsers().length,
+      teams: t.length,
+      championships: c.length,
+      titles: c.filter((ch) => ch.status === "Champion").length,
+      sponsorships: s.length,
+      activeSponsors: s.filter((sp) => sp.status === "Active").length,
+      contracts: ct.length,
+      activeContracts: ct.filter((k) => k.status === "Active").length,
+      users: list.length,
     },
     recentMembers: m.slice(0, 5),
-    recentChampionships: championships.read().slice(0, 4),
+    recentChampionships: c.slice(0, 4),
   });
-});
+}));
 
-app.get("/api/admin/announcements", requireAuth, requireStaff, (req, res) => {
-  res.json({ ok: true, announcements: siteStats.announcements });
-});
+app.get("/api/admin/announcements", requireAuth, requireStaff, ah(async (req, res) => {
+  const stats = await siteStats.read();
+  res.json({ ok: true, announcements: stats.announcements || [] });
+}));
 
-app.post("/api/admin/announcement", requireAuth, requireStaff, (req, res) => {
+app.post("/api/admin/announcement", requireAuth, requireStaff, ah(async (req, res) => {
   const { message } = req.body || {};
   if (!message || !String(message).trim()) {
     return res.status(400).json({ ok: false, error: "Announcement message is required." });
   }
   const msg = String(message).trim();
-  siteStats.announcements.unshift(msg);
-  siteStats.announcements = siteStats.announcements.slice(0, 6);
-  logActivity(req, "announce", "Published: " + msg.slice(0, 140));
-  res.json({ ok: true, announcements: siteStats.announcements });
-});
+  const stats = await siteStats.read();
+  const announcements = [msg, ...(stats.announcements || [])].slice(0, 6);
+  await siteStats.write({ ...stats, announcements });
+  await logActivity(req, "announce", "Published: " + msg.slice(0, 140));
+  res.json({ ok: true, announcements });
+}));
 
 /* ------------------------------------------------------------------ */
 /*  User accounts (admin only)                                         */
@@ -479,11 +474,11 @@ function publicUser(u) {
   };
 }
 
-app.get("/api/admin/users", requireAuth, requireAdmin, (req, res) => {
-  res.json({ ok: true, items: readUsers().map(publicUser) });
-});
+app.get("/api/admin/users", requireAuth, requireAdmin, ah(async (req, res) => {
+  res.json({ ok: true, items: (await readUsers()).map(publicUser) });
+}));
 
-app.post("/api/admin/users", requireAuth, requireAdmin, (req, res) => {
+app.post("/api/admin/users", requireAuth, requireAdmin, ah(async (req, res) => {
   const body = req.body || {};
   const name = String(body.username || "").trim();
   const pass = String(body.password || "");
@@ -496,7 +491,7 @@ app.post("/api/admin/users", requireAuth, requireAdmin, (req, res) => {
   if (pass.length < 8) {
     return res.status(400).json({ ok: false, error: "Password must be at least 8 characters." });
   }
-  const list = readUsers();
+  const list = await readUsers();
   if (list.some((u) => u.username.toLowerCase() === name.toLowerCase())) {
     return res.status(409).json({ ok: false, error: "Username already exists." });
   }
@@ -511,13 +506,13 @@ app.post("/api/admin/users", requireAuth, requireAdmin, (req, res) => {
     lastLogin: "",
   };
   list.unshift(record);
-  writeUsers(list);
-  logActivity(req, "create", "user \u201c" + name + "\u201d (" + (role === "admin" ? "Administrator" : "Staff") + ")");
+  await writeUsers(list);
+  await logActivity(req, "create", "user \u201c" + name + "\u201d (" + (role === "admin" ? "Administrator" : "Staff") + ")");
   res.status(201).json({ ok: true, item: publicUser(record) });
-});
+}));
 
-app.put("/api/admin/users/:id", requireAuth, requireAdmin, (req, res) => {
-  const list = readUsers();
+app.put("/api/admin/users/:id", requireAuth, requireAdmin, ah(async (req, res) => {
+  const list = await readUsers();
   const idx = list.findIndex((u) => u.id === req.params.id);
   if (idx === -1) return res.status(404).json({ ok: false, error: "User not found." });
 
@@ -541,18 +536,18 @@ app.put("/api/admin/users/:id", requireAuth, requireAdmin, (req, res) => {
   target.role = role;
   if (pass) target.password = bcrypt.hashSync(pass, 10);
   list[idx] = target;
-  writeUsers(list);
+  await writeUsers(list);
 
   if (req.session.user && req.session.user.id === target.id) {
     req.session.user.displayName = target.displayName;
     req.session.user.role = target.role;
   }
-  logActivity(req, "update", "user \u201c" + target.username + "\u201d" + (pass ? " (password reset)" : ""));
+  await logActivity(req, "update", "user \u201c" + target.username + "\u201d" + (pass ? " (password reset)" : ""));
   res.json({ ok: true, item: publicUser(target) });
-});
+}));
 
-app.delete("/api/admin/users/:id", requireAuth, requireAdmin, (req, res) => {
-  const list = readUsers();
+app.delete("/api/admin/users/:id", requireAuth, requireAdmin, ah(async (req, res) => {
+  const list = await readUsers();
   const target = list.find((u) => u.id === req.params.id);
   if (!target) return res.status(404).json({ ok: false, error: "User not found." });
   if (req.session.user && req.session.user.id === target.id) {
@@ -561,17 +556,17 @@ app.delete("/api/admin/users/:id", requireAuth, requireAdmin, (req, res) => {
   if (target.role === "admin" && list.filter((u) => u.role === "admin").length <= 1) {
     return res.status(400).json({ ok: false, error: "Cannot delete the last administrator." });
   }
-  writeUsers(list.filter((u) => u.id !== target.id));
-  logActivity(req, "delete", "user \u201c" + target.username + "\u201d");
+  await writeUsers(list.filter((u) => u.id !== target.id));
+  await logActivity(req, "delete", "user \u201c" + target.username + "\u201d");
   res.json({ ok: true });
-});
+}));
 
 /* ------------------------------------------------------------------ */
 /*  Activity log feed (admin only)                                     */
 /* ------------------------------------------------------------------ */
-app.get("/api/admin/activity", requireAuth, requireAdmin, (req, res) => {
-  res.json({ ok: true, items: activity.read() });
-});
+app.get("/api/admin/activity", requireAuth, requireAdmin, ah(async (req, res) => {
+  res.json({ ok: true, items: await activity.read() });
+}));
 
 /* ------------------------------------------------------------------ */
 /*  Protected dashboard page + static assets                           */
@@ -584,18 +579,51 @@ function serveDashboard(req, res, next) {
 app.get("/dashboard", serveDashboard);
 app.get("/dashboard.html", serveDashboard);
 
+// Uploaded photos live in storage (Postgres when configured, disk otherwise).
+app.get("/uploads/:name", ah(async (req, res) => {
+  const file = await storage.getUpload(req.params.name);
+  if (!file) return res.status(404).json({ ok: false, error: "File not found." });
+  res.set("Content-Type", file.mime);
+  res.set("Cache-Control", "public, max-age=86400");
+  res.end(file.data);
+}));
+
 app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"], index: "index.html" }));
 
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-app.listen(PORT, () => {
-  console.log("==============================================");
-  console.log("  NRX GAMING  |  server online");
-  console.log("  Site      : http://localhost:" + PORT);
-  console.log("  Dashboard : http://localhost:" + PORT + "/dashboard");
-  console.log("  Admin user: " + ADMIN_USERNAME);
-  console.log("  Admin pass: " + ADMIN_PASSWORD);
-  console.log("==============================================");
+app.use((err, req, res, next) => {
+  console.error("[error]", err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ ok: false, error: "Internal server error." });
+});
+
+const COLLECTIONS = [users, activity, siteStats, members, teams, championships, sponsorships, contracts];
+
+async function boot() {
+  await storage.init();
+  for (const c of COLLECTIONS) await c.seed();
+
+  const list = await users.read();
+  if (list.length && list[0] && typeof list[0].password === "string" && !list[0].password.startsWith("$2")) {
+    await users.write(list.map((u) => ({ ...u, password: bcrypt.hashSync(u.password, 10) })));
+  }
+
+  app.listen(PORT, () => {
+    console.log("==============================================");
+    console.log("  NRX GAMING  |  server online");
+    console.log("  Storage    : " + storage.driver);
+    console.log("  Site      : http://localhost:" + PORT);
+    console.log("  Dashboard : http://localhost:" + PORT + "/dashboard");
+    console.log("  Admin user: " + ADMIN_USERNAME);
+    console.log("  Admin pass: " + ADMIN_PASSWORD);
+    console.log("==============================================");
+  });
+}
+
+boot().catch((err) => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
 });

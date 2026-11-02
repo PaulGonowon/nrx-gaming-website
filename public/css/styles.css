@@ -488,6 +488,20 @@ body::before {
   transition: transform 0.5s var(--ease), box-shadow 0.5s;
 }
 .player:hover .player__photo { transform: translateY(-6px) scale(1.08); box-shadow: 0 0 40px rgba(255, 199, 0, 0.5); }
+.player__avatar {
+  width: 96px; height: 96px;
+  margin: 0 auto;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: var(--head); font-weight: 900; font-size: 34px;
+  color: var(--gold);
+  background: radial-gradient(circle at 50% 40%, rgba(255, 199, 0, 0.22), rgba(0, 0, 0, 0.55));
+  border: 2px solid rgba(255, 199, 0, 0.45);
+  box-shadow: 0 0 26px rgba(255, 199, 0, 0.2);
+  transition: transform 0.5s var(--ease), box-shadow 0.5s;
+}
+.player:hover .player__avatar { transform: translateY(-6px) scale(1.08); box-shadow: 0 0 40px rgba(255, 199, 0, 0.4); }
+.roster__empty { grid-column: 1 / -1; text-align: center; color: var(--muted); padding: 28px 0; font-size: 15px; }
 .player__tag { font-family: var(--head); font-weight: 700; font-size: 19px; margin: 14px 0 4px; }
 .player__role { color: var(--gold); font-size: 13px; letter-spacing: 2px; text-transform: uppercase; }
 .player__game { color: var(--muted); font-size: 13px; margin-top: 8px; }

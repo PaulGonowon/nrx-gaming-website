@@ -557,11 +557,33 @@ function publicUser(u) {
     username: u.username,
     displayName: u.displayName || u.username,
     role: u.role,
+    title: u.title || "",
+    photo: u.photo || "",
     createdAt: u.createdAt || "",
     lastLogin: u.lastLogin || "",
     passwordChangedAt: u.passwordChangedAt || "",
   };
 }
+
+// Public admin profiles for the landing page (no usernames or account details).
+app.get("/api/admins", ah(async (req, res) => {
+  const rank = { admin: 0, staff: 1 };
+  const admins = (await readUsers())
+    .slice()
+    .sort((a, b) => {
+      const byRole = (rank[a.role] ?? 2) - (rank[b.role] ?? 2);
+      if (byRole) return byRole;
+      return String(a.displayName || a.username).localeCompare(String(b.displayName || b.username));
+    })
+    .map((u) => ({
+      id: u.id,
+      name: u.displayName || u.username,
+      title: u.title || (u.role === "admin" ? "Administrator" : "Staff"),
+      role: u.role,
+      photo: u.photo || "",
+    }));
+  res.json({ ok: true, admins });
+}));
 
 app.get("/api/admin/users", requireAuth, requireAdmin, ah(async (req, res) => {
   res.json({ ok: true, items: (await readUsers()).map(publicUser) });
@@ -591,6 +613,8 @@ app.post("/api/admin/users", requireAuth, requireAdmin, ah(async (req, res) => {
     password: bcrypt.hashSync(pass, 10),
     role,
     displayName: disp,
+    title: String(body.title || "").trim(),
+    photo: String(body.photo || ""),
     createdAt: new Date().toISOString(),
     lastLogin: "",
   };
@@ -622,11 +646,15 @@ app.put("/api/admin/users/:id", requireAuth, requireAdmin, ah(async (req, res) =
     return res.status(400).json({ ok: false, error: "Password must be at least 8 characters." });
   }
 
+  const oldPhoto = target.photo;
   target.displayName = disp;
   target.role = role;
+  if (body.title !== undefined) target.title = String(body.title || "").trim();
+  if (body.photo !== undefined) target.photo = String(body.photo || "");
   if (pass) target.password = bcrypt.hashSync(pass, 10);
   list[idx] = target;
   await writeUsers(list);
+  if (oldPhoto && oldPhoto !== target.photo) await removePhoto(oldPhoto);
 
   if (req.session.user && req.session.user.id === target.id) {
     req.session.user.displayName = target.displayName;
@@ -652,6 +680,7 @@ app.delete("/api/admin/users/:id", requireAuth, requireAdmin, ah(async (req, res
     return res.status(400).json({ ok: false, error: "Cannot delete the last administrator." });
   }
   await writeUsers(list.filter((u) => u.id !== target.id));
+  if (target.photo) await removePhoto(target.photo);
   await logActivity(req, "delete", "user \u201c" + target.username + "\u201d");
   broadcastChange("users");
   res.json({ ok: true });

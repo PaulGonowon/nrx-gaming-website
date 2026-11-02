@@ -155,24 +155,30 @@
   /* ---------------- Data render ---------------- */
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  async function loadRoster() {
+  async function loadAdmins() {
+    const grid = $("#adminsGrid");
+    if (!grid) return;
     try {
-      const res = await fetch("/api/roster");
+      const res = await fetch("/api/admins");
       const data = await res.json();
       if (!data.ok) return;
-      $("#rosterGrid").innerHTML = data.players
+      const admins = data.admins || [];
+      if (!admins.length) {
+        grid.innerHTML = `<p class="roster__empty">Admin profiles coming soon.</p>`;
+        return;
+      }
+      grid.innerHTML = admins
         .map(
-          (p, i) => `
+          (a, i) => `
         <article class="player reveal" data-delay="${i * 60}">
           ${
-            p.photo
-              ? `<img class="player__photo" src="${esc(p.photo)}" alt="${esc(p.tag)}" loading="lazy" />`
-              : `<div class="player__emoji">${p.img}</div>`
+            a.photo
+              ? `<img class="player__photo" src="${esc(a.photo)}" alt="${esc(a.name)}" loading="lazy" />`
+              : `<div class="player__avatar">${esc(String(a.name).trim().charAt(0).toUpperCase() || "?")}</div>`
           }
-          <div class="player__tag">${esc(p.tag)}</div>
-          <div class="player__role">${esc(p.role)}</div>
-          <div class="player__game">${esc(p.game)}</div>
-          <div class="player__wins"><b>${p.wins}</b> career wins</div>
+          <div class="player__tag">${esc(a.name)}</div>
+          <div class="player__role">${esc(a.title)}</div>
+          <div class="player__game">${a.role === "admin" ? "Platform Admin" : "Staff"}</div>
         </article>`
         )
         .join("");
@@ -214,7 +220,7 @@
   function scheduleRefresh() {
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(() => {
-      loadRoster();
+      loadAdmins();
       loadNews();
     }, 300);
   }
@@ -326,7 +332,7 @@
   /* ---------------- Misc ---------------- */
   $("#year").textContent = new Date().getFullYear();
 
-  loadRoster();
+  loadAdmins();
   loadNews();
   startLive();
 })();

@@ -141,15 +141,17 @@
       ],
     },
     users: {
-      title: "Users",
-      viewTitle: "User Accounts",
-      addLabel: "Add User",
-      searchKey: "username",
+      title: "Admins",
+      viewTitle: "Admins & Staff",
+      addLabel: "Add Admin",
+      searchKey: "displayName",
       icon: "♟", color: "cyan",
       endpoint: "/api/admin/users",
       columns: [
-        { key: "username", label: "Username" },
+        { key: "photo", label: "Photo", photo: true },
         { key: "displayName", label: "Display Name" },
+        { key: "title", label: "Public Title" },
+        { key: "username", label: "Username" },
         { key: "role", label: "Role", userRole: true },
         { key: "lastLogin", label: "Last Login", when: true },
         { key: "createdAt", label: "Created", when: true },
@@ -157,8 +159,10 @@
       fields: [
         { key: "username", label: "Username", type: "text", required: true, placeholder: "coach.ruel" },
         { key: "displayName", label: "Display Name", type: "text", placeholder: "Ruel Bautista" },
+        { key: "title", label: "Public Title (shown on landing page)", type: "text", placeholder: "Founder & CEO" },
         { key: "role", label: "Role", type: "select", required: true, options: [{ v: "staff", l: "Staff" }, { v: "admin", l: "Administrator" }] },
         { key: "password", label: "Password", type: "password", required: true, placeholder: "Min 8 characters" },
+        { key: "photo", label: "Admin Photo (shown on landing page)", type: "photo", full: true },
       ],
     },
   };

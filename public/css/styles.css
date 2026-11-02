@@ -382,6 +382,29 @@ body::before {
 .kicker { font-family: var(--head); font-size: 13px; letter-spacing: 4px; color: var(--gold); text-transform: uppercase; }
 .section__head h2 { font-family: var(--head); font-weight: 900; font-size: clamp(28px, 4.6vw, 54px); line-height: 1.05; margin-top: 12px; }
 
+/* ---------- About ---------- */
+.about {
+  display: grid;
+  grid-template-columns: minmax(220px, 360px) 1fr;
+  gap: clamp(26px, 5vw, 70px);
+  align-items: center;
+}
+.about__art { display: flex; justify-content: center; }
+.about__art img {
+  width: 100%; max-width: 360px; height: auto;
+  filter: drop-shadow(0 0 60px rgba(255, 199, 0, 0.3));
+}
+.about__copy p { color: var(--muted); font-size: clamp(15px, 1.5vw, 17px); line-height: 1.75; }
+.about__copy p + p { margin-top: 16px; }
+.about__copy b { color: var(--text); font-weight: 600; }
+.about__facts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+.about__facts span {
+  font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  padding: 8px 14px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--gold);
+  background: rgba(255, 199, 0, 0.06);
+}
+
 /* ---------- Games ---------- */
 .games { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 22px; }
 .game-card {
@@ -692,6 +715,9 @@ body::before {
   .nav__burger.is-open span:nth-child(2) { opacity: 0; }
   .nav__burger.is-open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
   .stats { grid-template-columns: repeat(2, 1fr); }
+  .about { grid-template-columns: 1fr; text-align: left; }
+  .about__art { order: -1; }
+  .about__art img { max-width: 260px; filter: drop-shadow(0 0 40px rgba(255, 199, 0, 0.28)); }
   .match { grid-template-columns: 1fr auto; }
   .match__meta { grid-column: 1; grid-row: 1; }
   .match__teams { grid-column: 1; grid-row: 2; }

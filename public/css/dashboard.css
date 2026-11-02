@@ -489,6 +489,11 @@ tbody tr:hover td { background: rgba(255, 199, 0, 0.045); }
 
 .form-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
 
+/* Landing page content editor */
+.content-form { display: grid; gap: 22px; }
+.content-form .form-grid { margin-top: 6px; }
+.content-form textarea { width: 100%; min-height: 110px; resize: vertical; }
+
 /* ================= Toast ================= */
 .toast {
   position: fixed; bottom: 26px; left: 50%;

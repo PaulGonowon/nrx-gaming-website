@@ -139,6 +139,65 @@ const contracts = collection("contracts", [
 ]);
 
 /* ------------------------------------------------------------------ */
+/*  Landing page content (editable from the dashboard)                 */
+/* ------------------------------------------------------------------ */
+const games = collection("games", [
+  { id: crypto.randomUUID(), name: "ROS Legacy", description: "Battle royale roots — where the NRX legacy began and our first titles were won.", tag: "Active Roster", image: "/img/games/ros-legacy.jpg", order: 1 },
+  { id: crypto.randomUUID(), name: "Call of Duty: Mobile", description: "Mobile FPS firepower — ranked climbs, scrims, and tournament-ready gunplay.", tag: "Active Roster", image: "/img/games/codm.jpg", order: 2 },
+  { id: crypto.randomUUID(), name: "Mobile Legends: Bang Bang", description: "Fast-paced MOBA dominance across Philippine and SEA circuits.", tag: "Active Roster", image: "/img/games/mlbb.jpg", order: 3 },
+]);
+
+const matches = collection("matches", [
+  { id: crypto.randomUUID(), teamA: "NRX", teamB: "Voidline", meta: "LIVE • BO3", scoreA: "1", scoreB: "1", order: 1 },
+  { id: crypto.randomUUID(), teamA: "NRX", teamB: "Apex Nine", meta: "UPCOMING • 20:00 PHT", scoreA: "", scoreB: "", order: 2 },
+  { id: crypto.randomUUID(), teamA: "NRX", teamB: "Solstice", meta: "UPCOMING • SEA Masters", scoreA: "", scoreB: "", order: 3 },
+]);
+
+// Public admin profiles shown on the landing page — separate from login accounts.
+const publicAdmins = collection("admins", []);
+
+const siteContent = collection("siteContent", {
+  hero: {
+    badge: "Southeast Asia • Tier 1 Roster",
+    titleBefore: "WE BLEED",
+    titleAccent: "BLACK AND YELLOW",
+    tagline: "#FORVICTORY",
+    subtitle:
+      "NRX Gaming is a professional esports organization forged for championship runs in ROS Legacy, Call of Duty: Mobile and Mobile Legends: Bang Bang.",
+    ctaPrimary: { label: "View Tournaments", href: "#tournaments" },
+    ctaSecondary: { label: "Meet The Admins", href: "#admins" },
+  },
+  stats: [
+    { value: 200, suffix: "+", label: "Match Wins" },
+    { value: 47, suffix: "", label: "Tournaments" },
+    { value: 50, suffix: "+", label: "Members" },
+    { value: 172, suffix: "K", label: "Followers" },
+  ],
+  about: {
+    kicker: "// Who We Are",
+    titleBefore: "About",
+    titleAccent: "Us",
+    paragraphs: [
+      "NRX Gaming was founded and established on July 2018 by Likeanaa, Jayzee, Ziepy, 6ix9ine, Kyaaah, Peter, Soul, and Rheeze.",
+      "NRX Gaming is a clan that first originated in Rules of Survival Mobile, Rules of Survival PC Asia, Call of Duty Mobile, Sausage Man, Valorant, and Mobile Legends.",
+      "Not only is NRX Gaming on various platforms — it is also characterized by diversity. We are composed of members not only from the Philippines but also Cambodia, Indonesia, Vietnam, and Thailand. Our diverse background makes us stand out amongst other organizations because this shows that diversity makes us stronger.",
+      "We aim to be one of the best in the pro-gaming scene, where we shall maintain great sportsmanship and camaraderie.",
+    ],
+    facts: ["Est. July 2018", "8 Founding Members", "PH · KH · ID · VN · TH"],
+  },
+  cta: {
+    titleBefore: "Ready to join the",
+    titleAccent: "NRX",
+    titleAfter: "movement?",
+    subtitle: "Partner with a roster built for the world stage.",
+    button: "Sign In to Admin Console",
+  },
+  footer: {
+    text: "NRX Gaming. All rights reserved. Built for the win.",
+  },
+});
+
+/* ------------------------------------------------------------------ */
 /*  Middleware                                                         */
 /* ------------------------------------------------------------------ */
 app.use(express.json({ limit: "8mb" }));
@@ -465,6 +524,11 @@ registerCrud("championships", championships, ["name", "game", "team", "placement
 registerCrud("sponsorships", sponsorships, ["name", "type", "tier", "status"]);
 registerCrud("contracts", contracts, ["party", "type", "status"]);
 
+/* Landing page records (editable from the dashboard) */
+registerCrud("games", games, ["name"]);
+registerCrud("matches", matches, ["teamA", "teamB"]);
+registerCrud("admins", publicAdmins, ["name"]);
+
 /* ------------------------------------------------------------------ */
 /*  Member photo upload (base64 -> /uploads)                           */
 /* ------------------------------------------------------------------ */
@@ -549,6 +613,78 @@ app.post("/api/admin/announcement", requireAuth, requireStaff, ah(async (req, re
 }));
 
 /* ------------------------------------------------------------------ */
+/*  Landing page text content (siteContent)                            */
+/* ------------------------------------------------------------------ */
+app.get("/api/admin/content", requireAuth, requireStaff, ah(async (req, res) => {
+  res.json({ ok: true, content: await siteContent.read() });
+}));
+
+app.put("/api/admin/content", requireAuth, requireStaff, ah(async (req, res) => {
+  const body = req.body || {};
+  const current = await siteContent.read();
+
+  const str = (v, fallback) => (typeof v === "string" ? v : fallback || "");
+  const lines = (v, fallback) =>
+    Array.isArray(v)
+      ? v.map((x) => String(x)).filter((x) => x.trim())
+      : typeof v === "string"
+      ? v.split("\n").map((x) => x.trim()).filter(Boolean)
+      : fallback || [];
+
+  const heroIn = body.hero || {};
+  const aboutIn = body.about || {};
+  const ctaIn = body.cta || {};
+  const footerIn = body.footer || {};
+  const heroPrimary = heroIn.ctaPrimary || {};
+  const heroSecondary = heroIn.ctaSecondary || {};
+
+  const next = {
+    hero: {
+      badge: str(heroIn.badge, current.hero.badge),
+      titleBefore: str(heroIn.titleBefore, current.hero.titleBefore),
+      titleAccent: str(heroIn.titleAccent, current.hero.titleAccent),
+      tagline: str(heroIn.tagline, current.hero.tagline),
+      subtitle: str(heroIn.subtitle, current.hero.subtitle),
+      ctaPrimary: {
+        label: str(heroPrimary.label, current.hero.ctaPrimary.label),
+        href: str(heroPrimary.href, current.hero.ctaPrimary.href),
+      },
+      ctaSecondary: {
+        label: str(heroSecondary.label, current.hero.ctaSecondary.label),
+        href: str(heroSecondary.href, current.hero.ctaSecondary.href),
+      },
+    },
+    stats: Array.isArray(body.stats)
+      ? body.stats.slice(0, 8).map((s) => ({
+          value: Number(s && s.value) || 0,
+          suffix: str(s && s.suffix, ""),
+          label: str(s && s.label, ""),
+        }))
+      : current.stats,
+    about: {
+      kicker: str(aboutIn.kicker, current.about.kicker),
+      titleBefore: str(aboutIn.titleBefore, current.about.titleBefore),
+      titleAccent: str(aboutIn.titleAccent, current.about.titleAccent),
+      paragraphs: lines(aboutIn.paragraphs, current.about.paragraphs),
+      facts: lines(aboutIn.facts, current.about.facts),
+    },
+    cta: {
+      titleBefore: str(ctaIn.titleBefore, current.cta.titleBefore),
+      titleAccent: str(ctaIn.titleAccent, current.cta.titleAccent),
+      titleAfter: str(ctaIn.titleAfter, current.cta.titleAfter),
+      subtitle: str(ctaIn.subtitle, current.cta.subtitle),
+      button: str(ctaIn.button, current.cta.button),
+    },
+    footer: { text: str(footerIn.text, current.footer.text) },
+  };
+
+  await siteContent.write(next);
+  await logActivity(req, "update", "landing page content");
+  broadcastChange("content");
+  res.json({ ok: true, content: next });
+}));
+
+/* ------------------------------------------------------------------ */
 /*  User accounts (admin only)                                         */
 /* ------------------------------------------------------------------ */
 function publicUser(u) {
@@ -565,23 +701,46 @@ function publicUser(u) {
   };
 }
 
-// Public admin profiles for the landing page (no usernames or account details).
+function sortByOrder(list) {
+  return list.slice().sort((a, b) => {
+    const hasA = a.order !== undefined && a.order !== null && a.order !== "";
+    const hasB = b.order !== undefined && b.order !== null && b.order !== "";
+    const na = hasA ? Number(a.order) : 999;
+    const nb = hasB ? Number(b.order) : 999;
+    if (na !== nb) return na - nb;
+    return String(a.name || a.teamA || "").localeCompare(String(b.name || b.teamA || ""));
+  });
+}
+
+function publicAdmin(a) {
+  return {
+    id: a.id,
+    name: a.name || "",
+    title: a.title || "",
+    role: a.role || "",
+    photo: a.photo || "",
+  };
+}
+
+// Everything the landing page renders, in a single request.
+app.get("/api/site", ah(async (req, res) => {
+  const [content, gameList, matchList, adminList] = await Promise.all([
+    siteContent.read(),
+    games.read(),
+    matches.read(),
+    publicAdmins.read(),
+  ]);
+  res.json({
+    ok: true,
+    content,
+    games: sortByOrder(gameList),
+    matches: sortByOrder(matchList),
+    admins: sortByOrder(adminList).map(publicAdmin),
+  });
+}));
+
 app.get("/api/admins", ah(async (req, res) => {
-  const rank = { admin: 0, staff: 1 };
-  const admins = (await readUsers())
-    .slice()
-    .sort((a, b) => {
-      const byRole = (rank[a.role] ?? 2) - (rank[b.role] ?? 2);
-      if (byRole) return byRole;
-      return String(a.displayName || a.username).localeCompare(String(b.displayName || b.username));
-    })
-    .map((u) => ({
-      id: u.id,
-      name: u.displayName || u.username,
-      title: u.title || (u.role === "admin" ? "Administrator" : "Staff"),
-      role: u.role,
-      photo: u.photo || "",
-    }));
+  const admins = sortByOrder(await publicAdmins.read()).map(publicAdmin);
   res.json({ ok: true, admins });
 }));
 
@@ -725,11 +884,31 @@ app.use((err, req, res, next) => {
   res.status(500).json({ ok: false, error: "Internal server error." });
 });
 
-const COLLECTIONS = [users, activity, siteStats, members, teams, championships, sponsorships, contracts];
+const COLLECTIONS = [users, activity, siteStats, members, teams, championships, sponsorships, contracts, games, matches, siteContent];
+
+// One-time: if the landing-admin list was never created, start it from the
+// existing login accounts so the section is not empty. After this, the list is
+// fully managed in the dashboard (add / edit / delete freely).
+async function seedLandingAdmins() {
+  const existing = await storage.readDoc("admins");
+  if (existing !== undefined) return;
+
+  const list = (await readUsers()).map((u, i) => ({
+    id: crypto.randomUUID(),
+    name: u.displayName || u.username,
+    title: u.title || (u.role === "admin" ? "Administrator" : "Staff"),
+    role: u.role === "admin" ? "Platform Admin" : "Staff",
+    photo: u.photo || "",
+    order: i + 1,
+  }));
+  await storage.writeDoc("admins", list);
+  console.log('[storage] seeded "admins" from ' + list.length + " user account(s)");
+}
 
 async function boot() {
   await storage.init();
   for (const c of COLLECTIONS) await c.seed();
+  await seedLandingAdmins();
 
   const list = await users.read();
   if (list.length && list[0] && typeof list[0].password === "string" && !list[0].password.startsWith("$2")) {

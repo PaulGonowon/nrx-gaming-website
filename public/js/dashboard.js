@@ -141,17 +141,15 @@
       ],
     },
     users: {
-      title: "Admins",
-      viewTitle: "Admins & Staff",
-      addLabel: "Add Admin",
-      searchKey: "displayName",
+      title: "Users",
+      viewTitle: "User Accounts",
+      addLabel: "Add User",
+      searchKey: "username",
       icon: "♟", color: "cyan",
       endpoint: "/api/admin/users",
       columns: [
-        { key: "photo", label: "Photo", photo: true },
-        { key: "displayName", label: "Display Name" },
-        { key: "title", label: "Public Title" },
         { key: "username", label: "Username" },
+        { key: "displayName", label: "Display Name" },
         { key: "role", label: "Role", userRole: true },
         { key: "lastLogin", label: "Last Login", when: true },
         { key: "createdAt", label: "Created", when: true },
@@ -159,10 +157,78 @@
       fields: [
         { key: "username", label: "Username", type: "text", required: true, placeholder: "coach.ruel" },
         { key: "displayName", label: "Display Name", type: "text", placeholder: "Ruel Bautista" },
-        { key: "title", label: "Public Title (shown on landing page)", type: "text", placeholder: "Founder & CEO" },
         { key: "role", label: "Role", type: "select", required: true, options: [{ v: "staff", l: "Staff" }, { v: "admin", l: "Administrator" }] },
         { key: "password", label: "Password", type: "password", required: true, placeholder: "Min 8 characters" },
-        { key: "photo", label: "Admin Photo (shown on landing page)", type: "photo", full: true },
+      ],
+    },
+
+    /* ---- Landing page records (independent sa user accounts) ---- */
+    games: {
+      title: "Games",
+      viewTitle: "Landing Page · Games",
+      addLabel: "Add Game",
+      searchKey: "name",
+      icon: "▤", color: "cyan",
+      endpoint: "/api/admin/games",
+      columns: [
+        { key: "image", label: "Logo", photo: true },
+        { key: "name", label: "Game" },
+        { key: "description", label: "Description" },
+        { key: "tag", label: "Tag" },
+        { key: "order", label: "Order" },
+      ],
+      fields: [
+        { key: "name", label: "Game Name", type: "text", required: true, placeholder: "Mobile Legends: Bang Bang" },
+        { key: "description", label: "Short Description", type: "textarea", full: true, placeholder: "Fast-paced MOBA dominance..." },
+        { key: "tag", label: "Tag", type: "text", placeholder: "Active Roster" },
+        { key: "order", label: "Display Order", type: "number", placeholder: "1" },
+        { key: "image", label: "Game Logo", type: "photo", full: true },
+      ],
+    },
+    matches: {
+      title: "Matches",
+      viewTitle: "Landing Page · Matches",
+      addLabel: "Add Match",
+      searchKey: "teamA",
+      icon: "≡", color: "violet",
+      endpoint: "/api/admin/matches",
+      columns: [
+        { key: "meta", label: "Status / Info" },
+        { key: "teamA", label: "Team A" },
+        { key: "teamB", label: "Team B" },
+        { key: "scoreA", label: "Score A" },
+        { key: "scoreB", label: "Score B" },
+        { key: "order", label: "Order" },
+      ],
+      fields: [
+        { key: "teamA", label: "Team A", type: "text", required: true, placeholder: "NRX" },
+        { key: "teamB", label: "Team B (kalaban)", type: "text", required: true, placeholder: "Voidline" },
+        { key: "meta", label: "Status / Info", type: "text", placeholder: "LIVE • BO3 o UPCOMING • 20:00 PHT" },
+        { key: "scoreA", label: "Score A", type: "text", placeholder: "1" },
+        { key: "scoreB", label: "Score B", type: "text", placeholder: "1" },
+        { key: "order", label: "Display Order", type: "number", placeholder: "1" },
+      ],
+    },
+    admins: {
+      title: "Admins",
+      viewTitle: "Landing Page · Admins",
+      addLabel: "Add Admin",
+      searchKey: "name",
+      icon: "★", color: "magenta",
+      endpoint: "/api/admin/admins",
+      columns: [
+        { key: "photo", label: "Photo", photo: true },
+        { key: "name", label: "Name" },
+        { key: "title", label: "Title" },
+        { key: "role", label: "Role" },
+        { key: "order", label: "Order" },
+      ],
+      fields: [
+        { key: "name", label: "Name", type: "text", required: true, placeholder: "Paul Gonowon" },
+        { key: "title", label: "Title (lalabas sa landing page)", type: "text", placeholder: "Founder & CEO" },
+        { key: "role", label: "Role", type: "text", placeholder: "Platform Admin / Staff / Founder" },
+        { key: "order", label: "Display Order", type: "number", placeholder: "1" },
+        { key: "photo", label: "Photo", type: "photo", full: true },
       ],
     },
   };
@@ -181,7 +247,7 @@
   let editing = null;          // { type, id }
   let pendingDelete = null;    // { type, id }
   let stagedPhoto = null;      // newly uploaded, not yet saved
-  const dataCache = { members: [], teams: [], championships: [], sponsorships: [], contracts: [], users: [], logs: [] };
+  const dataCache = { members: [], teams: [], championships: [], sponsorships: [], contracts: [], users: [], logs: [], games: [], matches: [], admins: [] };
 
   /* ============ Session guard ============ */
   async function guard() {
@@ -226,6 +292,10 @@
       championships: SCHEMAS.championships.viewTitle,
       sponsorships: SCHEMAS.sponsorships.viewTitle,
       contracts: SCHEMAS.contracts.viewTitle,
+      content: "Landing Page Content",
+      games: SCHEMAS.games.viewTitle,
+      matches: SCHEMAS.matches.viewTitle,
+      admins: SCHEMAS.admins.viewTitle,
       announcements: "Announcements",
       users: SCHEMAS.users.viewTitle,
       logs: "Activity Logs",
@@ -236,6 +306,7 @@
     closeSidebar();
     if (view === "overview") loadOverview();
     else if (SCHEMAS[view]) loadRecordView(view);
+    else if (view === "content") loadContentView();
     else if (view === "announcements") loadAnnouncements();
     else if (view === "logs") loadLogsView();
     else if (view === "settings") loadSettings();
@@ -833,6 +904,146 @@
     });
   }
 
+  /* ============ Landing page content (singleton) ============ */
+  async function loadContentView() {
+    const section = $(`.view[data-view="content"]`);
+    let content = null;
+    try {
+      const r = await fetch("/api/admin/content");
+      const d = await r.json();
+      if (d.ok) content = d.content;
+    } catch {}
+
+    if (!content) {
+      section.innerHTML = `<div class="panel"><div class="empty"><b>Content unavailable</b>Please refresh and try again.</div></div>`;
+      return;
+    }
+
+    const h = content.hero || {};
+    const a = content.about || {};
+    const c = content.cta || {};
+    const f = content.footer || {};
+    const stats = Array.isArray(content.stats) ? content.stats : [];
+    const statRows = stats
+      .map(
+        (s, i) => `
+        <label class="field"><span class="field__label">Stat ${i + 1} — Number</span><input type="number" name="stat_${i}_value" value="${esc(s.value)}" /></label>
+        <label class="field"><span class="field__label">Stat ${i + 1} — Suffix</span><input type="text" name="stat_${i}_suffix" value="${esc(s.suffix || "")}" placeholder="+ o K" /></label>
+        <label class="field"><span class="field__label">Stat ${i + 1} — Label</span><input type="text" name="stat_${i}_label" value="${esc(s.label || "")}" placeholder="Match Wins" /></label>`
+      )
+      .join("");
+
+    section.innerHTML = `
+      <form id="contentForm" class="content-form">
+        <div class="panel">
+          <div class="panel__head"><h3>Hero</h3></div>
+          <div class="form-grid">
+            <label class="field fw"><span class="field__label">Badge</span><input type="text" name="hero_badge" value="${esc(h.badge || "")}" /></label>
+            <label class="field"><span class="field__label">Title (una)</span><input type="text" name="hero_titleBefore" value="${esc(h.titleBefore || "")}" /></label>
+            <label class="field"><span class="field__label">Title (accent / kulay)</span><input type="text" name="hero_titleAccent" value="${esc(h.titleAccent || "")}" /></label>
+            <label class="field"><span class="field__label">Tagline</span><input type="text" name="hero_tagline" value="${esc(h.tagline || "")}" /></label>
+            <label class="field fw"><span class="field__label">Subtitle</span><textarea name="hero_subtitle" rows="3">${esc(h.subtitle || "")}</textarea></label>
+            <label class="field"><span class="field__label">Primary button text</span><input type="text" name="hero_ctaPrimaryLabel" value="${esc((h.ctaPrimary || {}).label || "")}" /></label>
+            <label class="field"><span class="field__label">Primary button link</span><input type="text" name="hero_ctaPrimaryHref" value="${esc((h.ctaPrimary || {}).href || "")}" /></label>
+            <label class="field"><span class="field__label">Secondary button text</span><input type="text" name="hero_ctaSecondaryLabel" value="${esc((h.ctaSecondary || {}).label || "")}" /></label>
+            <label class="field"><span class="field__label">Secondary button link</span><input type="text" name="hero_ctaSecondaryHref" value="${esc((h.ctaSecondary || {}).href || "")}" /></label>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel__head"><h3>Stats Strip</h3></div>
+          <div class="form-grid">${statRows}</div>
+        </div>
+
+        <div class="panel">
+          <div class="panel__head"><h3>About Us</h3></div>
+          <div class="form-grid">
+            <label class="field"><span class="field__label">Kicker</span><input type="text" name="about_kicker" value="${esc(a.kicker || "")}" /></label>
+            <label class="field"><span class="field__label">Title (una)</span><input type="text" name="about_titleBefore" value="${esc(a.titleBefore || "")}" /></label>
+            <label class="field"><span class="field__label">Title (accent)</span><input type="text" name="about_titleAccent" value="${esc(a.titleAccent || "")}" /></label>
+            <label class="field fw"><span class="field__label">Paragraphs — isang linya kada paragraph</span><textarea name="about_paragraphs" rows="6">${esc((a.paragraphs || []).join("\n"))}</textarea></label>
+            <label class="field fw"><span class="field__label">Facts / badges — isang linya kada isa</span><textarea name="about_facts" rows="3">${esc((a.facts || []).join("\n"))}</textarea></label>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel__head"><h3>Call To Action &amp; Footer</h3></div>
+          <div class="form-grid">
+            <label class="field"><span class="field__label">CTA title (una)</span><input type="text" name="cta_titleBefore" value="${esc(c.titleBefore || "")}" /></label>
+            <label class="field"><span class="field__label">CTA accent</span><input type="text" name="cta_titleAccent" value="${esc(c.titleAccent || "")}" /></label>
+            <label class="field"><span class="field__label">CTA title (huli)</span><input type="text" name="cta_titleAfter" value="${esc(c.titleAfter || "")}" /></label>
+            <label class="field fw"><span class="field__label">CTA subtitle</span><input type="text" name="cta_subtitle" value="${esc(c.subtitle || "")}" /></label>
+            <label class="field"><span class="field__label">CTA button text</span><input type="text" name="cta_button" value="${esc(c.button || "")}" /></label>
+            <label class="field fw"><span class="field__label">Footer text</span><input type="text" name="footer_text" value="${esc(f.text || "")}" /></label>
+          </div>
+        </div>
+
+        <div class="form-error" id="contentError"></div>
+        <div class="form-actions"><button class="btn btn--primary" type="submit" id="contentSubmit">Save Landing Page</button></div>
+      </form>`;
+
+    $("#contentForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const g = (k) => String(fd.get(k) || "").trim();
+      const newStats = [];
+      for (let i = 0; i < stats.length; i++) {
+        newStats.push({ value: Number(g(`stat_${i}_value`)) || 0, suffix: g(`stat_${i}_suffix`), label: g(`stat_${i}_label`) });
+      }
+      const payload = {
+        hero: {
+          badge: g("hero_badge"),
+          titleBefore: g("hero_titleBefore"),
+          titleAccent: g("hero_titleAccent"),
+          tagline: g("hero_tagline"),
+          subtitle: g("hero_subtitle"),
+          ctaPrimary: { label: g("hero_ctaPrimaryLabel"), href: g("hero_ctaPrimaryHref") },
+          ctaSecondary: { label: g("hero_ctaSecondaryLabel"), href: g("hero_ctaSecondaryHref") },
+        },
+        stats: newStats,
+        about: {
+          kicker: g("about_kicker"),
+          titleBefore: g("about_titleBefore"),
+          titleAccent: g("about_titleAccent"),
+          paragraphs: g("about_paragraphs").split("\n").map((x) => x.trim()).filter(Boolean),
+          facts: g("about_facts").split("\n").map((x) => x.trim()).filter(Boolean),
+        },
+        cta: {
+          titleBefore: g("cta_titleBefore"),
+          titleAccent: g("cta_titleAccent"),
+          titleAfter: g("cta_titleAfter"),
+          subtitle: g("cta_subtitle"),
+          button: g("cta_button"),
+        },
+        footer: { text: g("footer_text") },
+      };
+
+      const btn = $("#contentSubmit");
+      const err = $("#contentError");
+      err.classList.remove("is-show");
+      btn.disabled = true;
+      try {
+        const r = await fetch("/api/admin/content", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const d = await r.json();
+        if (!d.ok) {
+          err.textContent = d.error || "Failed to save.";
+          err.classList.add("is-show");
+          return;
+        }
+        toast("Landing page updated.", "success");
+      } catch {
+        err.textContent = "Network error. Could not reach the server.";
+        err.classList.add("is-show");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
   /* ============ Realtime updates (SSE) ============ */
   let liveSource = null;
   let refreshTimer = null;
@@ -854,6 +1065,7 @@
   function refreshCurrentView() {
     if (currentView === "overview") loadOverview();
     else if (SCHEMAS[currentView]) loadRecordView(currentView);
+    else if (currentView === "content") loadContentView();
     else if (currentView === "announcements") loadAnnouncements();
     else if (currentView === "logs") loadLogsView();
     else if (currentView === "settings") loadSettings();

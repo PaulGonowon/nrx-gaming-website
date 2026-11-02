@@ -50,18 +50,18 @@
   <main>
     <section class="hero" id="home">
       <div class="hero__inner">
-        <span class="badge reveal" data-delay="0"><i></i> Southeast Asia • Tier 1 Roster</span>
+        <span class="badge reveal" data-delay="0"><i></i><span id="heroBadge">Southeast Asia • Tier 1 Roster</span></span>
         <h1 class="hero__title reveal" data-delay="80">
-          WE BLEED <span class="grad">BLACK AND YELLOW</span>
+          <span id="heroTitleBefore">WE BLEED</span> <span class="grad" id="heroTitleAccent">BLACK AND YELLOW</span>
         </h1>
-        <div class="hero__tag reveal" data-delay="130"><i></i>#FORVICTORY</div>
-        <p class="hero__sub reveal" data-delay="160">
+        <div class="hero__tag reveal" data-delay="130"><i></i><span id="heroTagline">#FORVICTORY</span></div>
+        <p class="hero__sub reveal" data-delay="160" id="heroSubtitle">
           NRX Gaming is a professional esports organization forged for championship runs in
           ROS Legacy, Call of Duty: Mobile and Mobile Legends: Bang Bang.
         </p>
         <div class="hero__cta reveal" data-delay="240">
-          <a href="#tournaments" class="btn btn--primary">View Tournaments</a>
-          <a href="#admins" class="btn btn--ghost">Meet The Admins</a>
+          <a href="#tournaments" class="btn btn--primary" id="heroCtaPrimary">View Tournaments</a>
+          <a href="#admins" class="btn btn--ghost" id="heroCtaSecondary">Meet The Admins</a>
         </div>
       </div>
 
@@ -73,7 +73,7 @@
 
     <section class="stats reveal" id="statsStrip">
       <div class="stat">
-        <div class="stat__num" data-count="128" data-suffix="+">0</div>
+        <div class="stat__num" data-count="200" data-suffix="+">0</div>
         <div class="stat__label">Match Wins</div>
       </div>
       <div class="stat">
@@ -81,45 +81,47 @@
         <div class="stat__label">Tournaments</div>
       </div>
       <div class="stat">
-        <div class="stat__num" data-count="1320" data-suffix="+">0</div>
+        <div class="stat__num" data-count="50" data-suffix="+">0</div>
         <div class="stat__label">Members</div>
       </div>
       <div class="stat">
-        <div class="stat__num" data-count="86" data-suffix="K">0</div>
+        <div class="stat__num" data-count="172" data-suffix="K">0</div>
         <div class="stat__label">Followers</div>
       </div>
     </section>
 
     <section class="section" id="about">
       <div class="section__head reveal">
-        <span class="kicker">// Who We Are</span>
-        <h2>About <span class="grad">Us</span></h2>
+        <span class="kicker" id="aboutKicker">// Who We Are</span>
+        <h2><span id="aboutTitleBefore">About</span> <span class="grad" id="aboutTitleAccent">Us</span></h2>
       </div>
       <div class="about">
         <div class="about__art reveal" data-delay="0">
           <img src="/img/logo-watermark.png" alt="NRX Gaming emblem" loading="lazy" />
         </div>
         <div class="about__copy reveal" data-delay="80">
-          <p>
-            NRX Gaming was founded and established on <b>July 2018</b> by Likeanaa, Jayzee,
-            Ziepy, 6ix9ine, Kyaaah, Peter, Soul, and Rheeze.
-          </p>
-          <p>
-            NRX Gaming is a clan that first originated in <b>Rules of Survival Mobile</b>,
-            <b>Rules of Survival PC Asia</b>, <b>Call of Duty Mobile</b>, <b>Sausage Man</b>,
-            <b>Valorant</b>, and <b>Mobile Legends</b>.
-          </p>
-          <p>
-            Not only is NRX Gaming on various platforms — it is also characterized by
-            <b>diversity</b>. We are composed of members not only from the Philippines but also
-            Cambodia, Indonesia, Vietnam, and Thailand. Our diverse background makes us stand out
-            amongst other organizations because this shows that diversity makes us stronger.
-          </p>
-          <p>
-            We aim to be one of the best in the pro-gaming scene, where we shall maintain great
-            <b>sportsmanship</b> and <b>camaraderie</b>.
-          </p>
-          <div class="about__facts">
+          <div id="aboutParagraphs">
+            <p>
+              NRX Gaming was founded and established on <b>July 2018</b> by Likeanaa, Jayzee,
+              Ziepy, 6ix9ine, Kyaaah, Peter, Soul, and Rheeze.
+            </p>
+            <p>
+              NRX Gaming is a clan that first originated in <b>Rules of Survival Mobile</b>,
+              <b>Rules of Survival PC Asia</b>, <b>Call of Duty Mobile</b>, <b>Sausage Man</b>,
+              <b>Valorant</b>, and <b>Mobile Legends</b>.
+            </p>
+            <p>
+              Not only is NRX Gaming on various platforms — it is also characterized by
+              <b>diversity</b>. We are composed of members not only from the Philippines but also
+              Cambodia, Indonesia, Vietnam, and Thailand. Our diverse background makes us stand out
+              amongst other organizations because this shows that diversity makes us stronger.
+            </p>
+            <p>
+              We aim to be one of the best in the pro-gaming scene, where we shall maintain great
+              <b>sportsmanship</b> and <b>camaraderie</b>.
+            </p>
+          </div>
+          <div class="about__facts" id="aboutFacts">
             <span>Est. July 2018</span>
             <span>8 Founding Members</span>
             <span>PH &middot; KH &middot; ID &middot; VN &middot; TH</span>
@@ -133,7 +135,7 @@
         <span class="kicker">// Our Battlegrounds</span>
         <h2>Games We <span class="grad">Compete In</span></h2>
       </div>
-      <div class="games">
+      <div class="games" id="gamesGrid">
         <article class="game-card reveal" data-delay="0">
           <div class="game-card__logo"><img src="/img/games/ros-legacy.jpg" alt="ROS Legacy" loading="lazy" /></div>
           <h3>ROS Legacy</h3>
@@ -168,7 +170,7 @@
         <span class="kicker">// Fixtures</span>
         <h2>Live &amp; Upcoming <span class="grad">Matches</span></h2>
       </div>
-      <div class="matches">
+      <div class="matches" id="matchesGrid">
         <div class="match reveal" data-delay="0">
           <div class="match__meta"><span class="live-dot"></span> LIVE • BO3</div>
           <div class="match__teams"><span class="match__team">NRX</span><span class="match__vs">VS</span><span class="match__team match__team--foe">Voidline</span></div>
@@ -196,15 +198,15 @@
     </section>
 
     <section class="cta reveal">
-      <h2>Ready to join the <span class="grad">NRX</span> movement?</h2>
-      <p>Partner with a roster built for the world stage.</p>
+      <h2><span id="ctaTitleBefore">Ready to join the</span> <span class="grad" id="ctaTitleAccent">NRX</span> <span id="ctaTitleAfter">movement?</span></h2>
+      <p id="ctaSubtitle">Partner with a roster built for the world stage.</p>
       <button class="btn btn--primary" id="ctaSignIn">Sign In to Admin Console</button>
     </section>
   </main>
 
   <footer class="footer">
     <img class="footer__logo" src="/img/logo-text.png" alt="NRX Gaming" />
-    <p>© <span id="year"></span> NRX Gaming. All rights reserved. Built for the win.</p>
+    <p>© <span id="year"></span> <span id="footerText">NRX Gaming. All rights reserved. Built for the win.</span></p>
   </footer>
 
   <div class="modal" id="modal" aria-hidden="true">

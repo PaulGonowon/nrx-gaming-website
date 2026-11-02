@@ -155,34 +155,144 @@
   /* ---------------- Data render ---------------- */
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  async function loadAdmins() {
+  function setText(id, value) {
+    const el = $("#" + id);
+    if (el && typeof value === "string" && value.trim()) el.textContent = value;
+  }
+  function setHref(id, href) {
+    const el = $("#" + id);
+    if (el && typeof href === "string" && href.trim()) el.setAttribute("href", href);
+  }
+
+  function renderStats(stats) {
+    const strip = $("#statsStrip");
+    if (!strip || !Array.isArray(stats) || !stats.length) return;
+    strip.innerHTML = stats
+      .map(
+        (s) => `
+      <div class="stat">
+        <div class="stat__num" data-count="${Number(s.value) || 0}" data-suffix="${esc(s.suffix || "")}">0</div>
+        <div class="stat__label">${esc(s.label || "")}</div>
+      </div>`
+      )
+      .join("");
+    $$(".stat__num", strip).forEach((el) => counterObserver.observe(el));
+  }
+
+  function applyContent(content) {
+    const h = content.hero || {};
+    setText("heroBadge", h.badge);
+    setText("heroTitleBefore", h.titleBefore);
+    setText("heroTitleAccent", h.titleAccent);
+    setText("heroTagline", h.tagline);
+    setText("heroSubtitle", h.subtitle);
+    setText("heroCtaPrimary", (h.ctaPrimary || {}).label);
+    setHref("heroCtaPrimary", (h.ctaPrimary || {}).href);
+    setText("heroCtaSecondary", (h.ctaSecondary || {}).label);
+    setHref("heroCtaSecondary", (h.ctaSecondary || {}).href);
+
+    renderStats(content.stats);
+
+    const a = content.about || {};
+    setText("aboutKicker", a.kicker);
+    setText("aboutTitleBefore", a.titleBefore);
+    setText("aboutTitleAccent", a.titleAccent);
+    const paras = $("#aboutParagraphs");
+    if (paras && Array.isArray(a.paragraphs) && a.paragraphs.length) {
+      paras.innerHTML = a.paragraphs.map((p) => `<p>${esc(p)}</p>`).join("");
+    }
+    const facts = $("#aboutFacts");
+    if (facts && Array.isArray(a.facts) && a.facts.length) {
+      facts.innerHTML = a.facts.map((f) => `<span>${esc(f)}</span>`).join("");
+    }
+
+    const c = content.cta || {};
+    setText("ctaTitleBefore", c.titleBefore);
+    setText("ctaTitleAccent", c.titleAccent);
+    setText("ctaTitleAfter", c.titleAfter);
+    setText("ctaSubtitle", c.subtitle);
+    setText("ctaSignIn", c.button);
+
+    setText("footerText", (content.footer || {}).text);
+  }
+
+  function renderGames(games) {
+    const grid = $("#gamesGrid");
+    if (!grid || !Array.isArray(games) || !games.length) return;
+    grid.innerHTML = games
+      .map(
+        (g, i) => `
+      <article class="game-card reveal" data-delay="${i * 80}">
+        <div class="game-card__logo">${
+          g.image
+            ? `<img src="${esc(g.image)}" alt="${esc(g.name || "")}" loading="lazy" />`
+            : `<div class="game-card__icon">🎮</div>`
+        }</div>
+        <h3>${esc(g.name || "")}</h3>
+        <p>${esc(g.description || "")}</p>
+        ${g.tag ? `<span class="game-card__tag">${esc(g.tag)}</span>` : ""}
+      </article>`
+      )
+      .join("");
+    observeReveals();
+  }
+
+  function renderMatches(matches) {
+    const wrap = $("#matchesGrid");
+    if (!wrap || !Array.isArray(matches)) return;
+    if (!matches.length) {
+      wrap.innerHTML = "";
+      return;
+    }
+    wrap.innerHTML = matches
+      .map((m, i) => {
+        const live = /live/i.test(m.meta || "");
+        const hasScore = String(m.scoreA ?? "").trim() !== "" || String(m.scoreB ?? "").trim() !== "";
+        return `
+      <div class="match reveal" data-delay="${i * 80}">
+        <div class="match__meta">${live ? '<span class="live-dot"></span> ' : ""}${esc(m.meta || "")}</div>
+        <div class="match__teams"><span class="match__team">${esc(m.teamA || "")}</span><span class="match__vs">VS</span><span class="match__team match__team--foe">${esc(m.teamB || "")}</span></div>
+        <div class="match__score">${hasScore ? `${esc(m.scoreA)} <em>:</em> ${esc(m.scoreB)}` : "&mdash;"}</div>
+      </div>`;
+      })
+      .join("");
+    observeReveals();
+  }
+
+  function renderAdmins(admins) {
     const grid = $("#adminsGrid");
-    if (!grid) return;
+    if (!grid || !Array.isArray(admins)) return;
+    if (!admins.length) {
+      grid.innerHTML = `<p class="roster__empty">Admin profiles coming soon.</p>`;
+      return;
+    }
+    grid.innerHTML = admins
+      .map(
+        (a, i) => `
+      <article class="player reveal" data-delay="${i * 60}">
+        ${
+          a.photo
+            ? `<img class="player__photo" src="${esc(a.photo)}" alt="${esc(a.name)}" loading="lazy" />`
+            : `<div class="player__avatar">${esc(String(a.name || "?").trim().charAt(0).toUpperCase() || "?")}</div>`
+        }
+        <div class="player__tag">${esc(a.name || "")}</div>
+        <div class="player__role">${esc(a.title || "")}</div>
+        <div class="player__game">${esc(a.role || "")}</div>
+      </article>`
+      )
+      .join("");
+    observeReveals();
+  }
+
+  async function loadSite() {
     try {
-      const res = await fetch("/api/admins");
+      const res = await fetch("/api/site");
       const data = await res.json();
       if (!data.ok) return;
-      const admins = data.admins || [];
-      if (!admins.length) {
-        grid.innerHTML = `<p class="roster__empty">Admin profiles coming soon.</p>`;
-        return;
-      }
-      grid.innerHTML = admins
-        .map(
-          (a, i) => `
-        <article class="player reveal" data-delay="${i * 60}">
-          ${
-            a.photo
-              ? `<img class="player__photo" src="${esc(a.photo)}" alt="${esc(a.name)}" loading="lazy" />`
-              : `<div class="player__avatar">${esc(String(a.name).trim().charAt(0).toUpperCase() || "?")}</div>`
-          }
-          <div class="player__tag">${esc(a.name)}</div>
-          <div class="player__role">${esc(a.title)}</div>
-          <div class="player__game">${a.role === "admin" ? "Platform Admin" : "Staff"}</div>
-        </article>`
-        )
-        .join("");
-      observeReveals();
+      applyContent(data.content || {});
+      renderGames(data.games);
+      renderMatches(data.matches);
+      renderAdmins(data.admins);
     } catch (e) {
       console.error(e);
     }
@@ -220,7 +330,7 @@
   function scheduleRefresh() {
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(() => {
-      loadAdmins();
+      loadSite();
       loadNews();
     }, 300);
   }
@@ -332,7 +442,7 @@
   /* ---------------- Misc ---------------- */
   $("#year").textContent = new Date().getFullYear();
 
-  loadAdmins();
+  loadSite();
   loadNews();
   startLive();
 })();
